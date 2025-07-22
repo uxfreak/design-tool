@@ -23,6 +23,19 @@ let appState = {
     openProjects: new Map() // Track opened projects with Component Library viewer
 };
 
+// Phase 3: Context Awareness System
+let appContext = {
+    currentView: 'dashboard', // 'dashboard' | 'project-viewer' | 'settings'
+    activeProject: null, // { id, name, path, status }
+    currentFile: null, // Current file being viewed/edited
+    openFiles: [], // List of open files
+    activeTab: null, // 'component-library' | 'workflows' | null
+    serverStatus: { running: false, port: null, url: null },
+    terminalCwd: null, // Current working directory for terminal
+    recentActions: [], // Track recent user actions for context
+    breadcrumbs: [] // Navigation breadcrumbs
+};
+
 // Pure function constants
 const PROJECT_TEMPLATES = {
     'react-basic': {
@@ -349,6 +362,9 @@ async function initializeApp() {
     // Initial render
     updateProjectsDisplay();
     
+    // Initial status bar update
+    updateBreadcrumbsAndStatus();
+    
     console.log('✅ Design Tool Phase 4 ready');
 }
 
@@ -463,7 +479,7 @@ function renderProjectCard(project) {
     
     return `
         <div class="project-card" data-project-id="${project.id}">
-            <div onclick="openProject('${project.id}')" style="cursor: ${isCreating ? 'default' : 'pointer'}; flex: 1;">
+            <div onclick="enhancedOpenProjectViewer('${project.id}')" style="cursor: ${isCreating ? 'default' : 'pointer'}; flex: 1;">
                 <div class="project-name">${project.name}</div>
                 <div class="project-meta">
                     ${project.templateDisplay} • Created ${project.displayCreatedAt}
@@ -474,7 +490,7 @@ function renderProjectCard(project) {
             </div>
             <div class="project-actions" style="display: flex; gap: 0.5rem; margin-top: 1rem;">
                 <button 
-                    onclick="openProject('${project.id}')" 
+                    onclick="enhancedOpenProjectViewer('${project.id}')" 
                     ${isCreating || isOpening ? 'disabled' : ''} 
                     style="background: ${isCreating || isOpening ? '#ccc' : (isRunning ? '#4caf50' : '#667eea')}; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: ${isCreating || isOpening ? 'not-allowed' : 'pointer'}; font-size: 0.8rem;">
                     ${isRunning ? 'View Project' : 'Open'}
@@ -517,7 +533,7 @@ function closeCreateProjectModal() {
     // Reset submit button state
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn) {
-        submitBtn.textContent = 'Create Project';
+        submitBtn.title = 'Create Project';
         submitBtn.disabled = false;
     }
 }
@@ -531,7 +547,7 @@ async function handleCreateProject(e) {
     
     // Disable form
     const submitBtn = e.target.querySelector('button[type="submit"]');
-    submitBtn.textContent = 'Creating...';
+    submitBtn.title = 'Creating Project...';
     submitBtn.disabled = true;
     
     try {
@@ -661,8 +677,6 @@ function switchProjectTab(tabId) {
         showComponentLibraryContent(contentArea, project);
     } else if (tabId === 'workflows') {
         showWorkflowsContent(contentArea, project);
-    } else if (tabId === 'terminal') {
-        showTerminalContent(contentArea, project);
     }
 }
 
@@ -944,17 +958,25 @@ function createProjectViewerModal(projectId) {
                     <h3 class="project-viewer-title">Project Viewer</h3>
                 </div>
                 <div class="project-viewer-tabs">
-                    <button class="project-tab active" data-tab="component-library" onclick="switchProjectTab('component-library')">
-                        🧩 Component Library
+                    <button class="project-tab active" data-tab="component-library" onclick="switchProjectTab('component-library')" title="Component Library">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                        </svg>
+                        Components
                     </button>
-                    <button class="project-tab" data-tab="workflows" onclick="switchProjectTab('workflows')">
-                        ⚡ Workflows
-                    </button>
-                    <button class="project-tab" data-tab="terminal" onclick="switchProjectTab('terminal')">
-                        💻 Claude Terminal
+                    <button class="project-tab" data-tab="workflows" onclick="switchProjectTab('workflows')" title="Workflows">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
+                            <polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"></polygon>
+                        </svg>
+                        Workflows
                     </button>
                 </div>
-                <button class="close-project-viewer-btn" onclick="closeProjectViewer()">&times;</button>
+                <button class="close-project-viewer-btn" onclick="closeProjectViewer()" title="Close Project Viewer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
             <div class="project-content">
                 <!-- Content will be dynamically loaded here -->
@@ -1033,7 +1055,9 @@ async function openWorkflowPreview(project, workflow) {
     const modalTitle = modal.querySelector('.workflow-preview-title');
     const modalContent = modal.querySelector('.workflow-preview-content');
     
-    modalTitle.textContent = `${workflow.name} - ${project.name}`;
+    if (modalTitle) {
+        modalTitle.textContent = `${workflow.name} - ${project.name}`;
+    }
     
     // Show loading first
     modalContent.innerHTML = `
@@ -1914,13 +1938,956 @@ function cleanupTerminals() {
 }
 
 // Cleanup terminals when project viewer is closed
-const originalCloseProjectViewer = window.closeProjectViewer;
+const originalCloseProjectViewerForCleanup = window.closeProjectViewer;
 window.closeProjectViewer = function() {
     cleanupTerminals();
-    if (originalCloseProjectViewer) {
-        originalCloseProjectViewer();
+    if (originalCloseProjectViewerForCleanup) {
+        originalCloseProjectViewerForCleanup();
     }
 };
 
+/**
+ * Terminal Sidebar Management - Phase 2 Implementation
+ */
+
+// Terminal sidebar state
+let terminalSidebarState = {
+    isOpen: false,
+    width: 400,
+    minWidth: 300,
+    maxWidth: 800,
+    globalTerminal: null,
+    globalPid: null,
+    isClaudeReady: false,
+    isInitializing: false
+};
+
+/**
+ * Toggle terminal sidebar visibility
+ */
+function toggleTerminalSidebar() {
+    const sidebar = document.getElementById('terminal-sidebar');
+    const headerTerminalBtn = document.getElementById('header-terminal-btn');
+    const projectTerminalBtn = document.getElementById('project-terminal-btn');
+    
+    if (!sidebar) return;
+    
+    terminalSidebarState.isOpen = !terminalSidebarState.isOpen;
+    
+    if (terminalSidebarState.isOpen) {
+        sidebar.classList.remove('hidden');
+        
+        // Update both terminal button titles
+        if (headerTerminalBtn) {
+            headerTerminalBtn.title = 'Close Terminal';
+        }
+        if (projectTerminalBtn) {
+            projectTerminalBtn.title = 'Close Terminal';
+        }
+        
+        // Initialize terminal if not already done
+        if (!terminalSidebarState.globalTerminal) {
+            initializeGlobalTerminal();
+        }
+    } else {
+        sidebar.classList.add('hidden');
+        
+        // Update both terminal button titles
+        if (headerTerminalBtn) {
+            headerTerminalBtn.title = 'Toggle Terminal';
+        }
+        if (projectTerminalBtn) {
+            projectTerminalBtn.title = 'Toggle Terminal';
+        }
+    }
+}
+
+/**
+ * Initialize global terminal in sidebar
+ */
+async function initializeGlobalTerminal() {
+    console.log('🖥️ Initializing global terminal in sidebar...');
+    
+    const terminalContent = document.getElementById('terminal-sidebar-content');
+    if (!terminalContent) return;
+    
+    try {
+        // Show loading state
+        terminalContent.innerHTML = `
+            <div class="terminal-loading">
+                <div class="loading-spinner"></div>
+                <p>Starting terminal...</p>
+            </div>
+        `;
+        
+        // Update state and indicators
+        terminalSidebarState.isInitializing = true;
+        terminalSidebarState.isClaudeReady = false;
+        updateTerminalReadyState();
+        
+        // Create xterm instance
+        const terminal = new window.Terminal({
+            theme: {
+                background: '#1a1a1a',
+                foreground: '#ffffff',
+                cursor: '#ffffff',
+                selection: '#4b5563',
+                black: '#1a1a1a',
+                red: '#ef4444',
+                green: '#10b981',
+                yellow: '#f59e0b',
+                blue: '#3b82f6',
+                magenta: '#8b5cf6',
+                cyan: '#06b6d4',
+                white: '#f3f4f6',
+                brightBlack: '#374151',
+                brightRed: '#f87171',
+                brightGreen: '#34d399',
+                brightYellow: '#fbbf24',
+                brightBlue: '#60a5fa',
+                brightMagenta: '#a78bfa',
+                brightCyan: '#22d3ee',
+                brightWhite: '#ffffff'
+            },
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace",
+            fontSize: 13,
+            lineHeight: 1.4,
+            cursorBlink: true,
+            cursorStyle: 'block',
+            allowTransparency: true
+        });
+        
+        // Create fit addon with proper detection
+        let fitAddon;
+        if (typeof window.FitAddon === 'function') {
+            fitAddon = new window.FitAddon();
+        } else if (typeof window.FitAddon === 'object' && window.FitAddon.FitAddon) {
+            fitAddon = new window.FitAddon.FitAddon();
+        } else {
+            console.warn('FitAddon structure not recognized:', window.FitAddon);
+            throw new Error('FitAddon not available');
+        }
+        terminal.loadAddon(fitAddon);
+        
+        // Clear loading and create terminal container
+        terminalContent.innerHTML = '';
+        const terminalContainer = document.createElement('div');
+        terminalContainer.style.width = '100%';
+        terminalContainer.style.height = '100%';
+        terminalContainer.style.padding = '0.5rem';
+        terminalContent.appendChild(terminalContainer);
+        
+        // Open terminal
+        terminal.open(terminalContainer);
+        fitAddon.fit();
+        terminal.focus();
+        
+        // Get current working directory - default to home or fallback
+        const cwd = getCurrentWorkingDirectory() || '/';
+        
+        // Start PTY process with context information
+        let ptyResult = await window.electronAPI.ptyStart({
+            cwd: cwd,
+            cmd: 'bash',  // Start with bash shell
+            context: {
+                currentView: appContext.currentView,
+                activeProject: appContext.activeProject,
+                activeTab: appContext.activeTab,
+                terminalType: 'global_sidebar',
+                initializationType: 'user_initiated'
+            }
+        });
+        
+        // If bash fails, try sh with same context
+        if (!ptyResult.success) {
+            ptyResult = await window.electronAPI.ptyStart({
+                cwd: cwd,
+                cmd: 'sh',
+                context: {
+                    currentView: appContext.currentView,
+                    activeProject: appContext.activeProject,
+                    activeTab: appContext.activeTab,
+                    terminalType: 'global_sidebar',
+                    initializationType: 'fallback_shell'
+                }
+            });
+        }
+        
+        // If still failing, try without specifying command
+        if (!ptyResult.success) {
+            ptyResult = await window.electronAPI.ptyStart({
+                cwd: cwd
+            });
+        }
+        
+        console.log('PTY start result:', ptyResult);
+        
+        // Handle different PTY result formats
+        const pid = typeof ptyResult === 'number' ? ptyResult : ptyResult.pid;
+        const success = typeof ptyResult === 'number' ? true : ptyResult.success;
+        
+        if (success && pid) {
+            console.log(`✅ Global terminal PTY started with PID: ${pid}`);
+            
+            // Store global terminal info
+            terminalSidebarState.globalTerminal = terminal;
+            terminalSidebarState.globalPid = pid;
+            terminalSidebarState.isInitializing = true;
+            terminalSidebarState.isClaudeReady = false;
+            
+            // Set up data flow: PTY -> Terminal with Claude readiness detection
+            const dataCleanup = window.electronAPI.onPtyData((data) => {
+                if (data.pid === terminalSidebarState.globalPid) {
+                    terminal.write(data.data);
+                    
+                    // Detect when Claude Code is ready - look for specific ready indicators
+                    if (!terminalSidebarState.isClaudeReady && 
+                        (data.data.includes('Welcome to Claude Code') || 
+                         data.data.includes('/help for help') ||
+                         data.data.includes('Run claude --continue') ||
+                         data.data.includes('cwd:'))) { // Current working directory indicates ready
+                        
+                        terminalSidebarState.isClaudeReady = true;
+                        terminalSidebarState.isInitializing = false;
+                        console.log('🎉 Claude Code is ready for input!');
+                        updateTerminalReadyState();
+                        
+                        // Don't add extra messages - Claude Code already shows its welcome
+                    }
+                }
+            });
+            
+            // Set up data flow: Terminal -> PTY
+            terminal.onData((data) => {
+                if (terminalSidebarState.globalPid) {
+                    window.electronAPI.ptyWrite(terminalSidebarState.globalPid, data);
+                }
+            });
+            
+            // Handle terminal resize
+            terminal.onResize(({ cols, rows }) => {
+                if (terminalSidebarState.globalPid) {
+                    window.electronAPI.ptyResize(terminalSidebarState.globalPid, cols, rows);
+                }
+            });
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                if (terminalSidebarState.isOpen) {
+                    setTimeout(() => fitAddon.fit(), 100);
+                }
+            });
+            
+            // Fit terminal when sidebar is resized
+            const resizeObserver = new ResizeObserver(() => {
+                if (terminalSidebarState.isOpen) {
+                    setTimeout(() => fitAddon.fit(), 50);
+                }
+            });
+            resizeObserver.observe(terminalContent);
+            
+            // Auto-start Claude Code if it's not already running
+            setTimeout(() => {
+                // Only run claude --continue if Claude hasn't started automatically
+                if (!terminalSidebarState.isClaudeReady && !terminalSidebarState.isInitializing) {
+                    console.log('🚀 Auto-starting Claude Code...');
+                    terminalSidebarState.isInitializing = true;
+                    updateTerminalReadyState();
+                    window.electronAPI.ptyWrite(pid, 'claude --continue\r');
+                }
+            }, 3000); // Give more time to detect if Claude auto-started
+            
+        } else {
+            const error = typeof ptyResult === 'object' ? ptyResult.error : 'Unknown error';
+            throw new Error(`Failed to start terminal: ${error}`);
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize global terminal:', error);
+        terminalContent.innerHTML = `
+            <div class="terminal-loading">
+                <h3 style="color: #ef4444;">Terminal Error</h3>
+                <p style="color: #ccc;">Failed to start terminal: ${error.message}</p>
+                <button onclick="initializeGlobalTerminal()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Update terminal ready state indicators
+ */
+function updateTerminalReadyState() {
+    const terminalStatus = document.getElementById('terminal-status');
+    if (terminalStatus) {
+        const indicator = terminalStatus.querySelector('.status-indicator');
+        
+        if (terminalSidebarState.isClaudeReady) {
+            indicator.className = 'status-indicator claude-ready-indicator';
+            indicator.style.backgroundColor = '#4caf50';
+            terminalStatus.title = 'Claude Ready';
+            // Add a celebration effect
+            setTimeout(() => {
+                indicator.style.transform = 'scale(1.2)';
+                setTimeout(() => {
+                    indicator.style.transform = 'scale(1)';
+                }, 200);
+            }, 100);
+        } else if (terminalSidebarState.isInitializing) {
+            indicator.className = 'status-indicator';
+            indicator.style.backgroundColor = '#ff9800';
+            indicator.style.transform = 'scale(1)';
+            terminalStatus.title = 'Loading Terminal...';
+        } else if (terminalSidebarState.globalPid) {
+            indicator.className = 'status-indicator';
+            indicator.style.backgroundColor = '#2196f3';
+            indicator.style.transform = 'scale(1)';
+            terminalStatus.title = 'Terminal Active';
+        } else {
+            indicator.className = 'status-indicator inactive';
+            indicator.style.transform = 'scale(1)';
+            terminalStatus.title = 'Terminal Inactive';
+        }
+    }
+    
+    // Update terminal sidebar header if needed
+    const terminalTitle = document.querySelector('.terminal-sidebar-title');
+    if (terminalTitle) {
+        if (terminalSidebarState.isClaudeReady) {
+            terminalTitle.title = 'Claude Ready';
+        } else if (terminalSidebarState.isInitializing) {
+            terminalTitle.title = 'Starting Claude...';
+        } else {
+            terminalTitle.title = 'Terminal';
+        }
+    }
+}
+
+/**
+ * Clear terminal content
+ */
+function clearTerminal() {
+    if (terminalSidebarState.globalTerminal) {
+        terminalSidebarState.globalTerminal.clear();
+    }
+}
+
+/**
+ * Restart terminal session
+ */
+async function restartTerminal() {
+    console.log('🔄 Restarting global terminal...');
+    
+    // Kill existing terminal
+    if (terminalSidebarState.globalPid) {
+        try {
+            await window.electronAPI.ptyKill(terminalSidebarState.globalPid);
+        } catch (error) {
+            console.warn('Failed to kill existing terminal:', error);
+        }
+    }
+    
+    // Dispose terminal
+    if (terminalSidebarState.globalTerminal) {
+        terminalSidebarState.globalTerminal.dispose();
+    }
+    
+    // Reset state
+    terminalSidebarState.globalTerminal = null;
+    terminalSidebarState.globalPid = null;
+    terminalSidebarState.isClaudeReady = false;
+    terminalSidebarState.isInitializing = false;
+    updateTerminalReadyState();
+    
+    // Reinitialize
+    await initializeGlobalTerminal();
+}
+
+/**
+ * Get current working directory based on context
+ */
+function getCurrentWorkingDirectory() {
+    // Use active project from context system
+    if (appContext.activeProject && appContext.activeProject.path) {
+        console.log('🏠 Using project directory:', appContext.activeProject.path);
+        return appContext.activeProject.path;
+    }
+    
+    // Fallback: check if we're on project view page
+    const projectView = document.getElementById('project-view');
+    if (projectView && projectView.style.display !== 'none') {
+        const projectTitle = document.getElementById('project-title');
+        if (projectTitle) {
+            const projectName = projectTitle.textContent;
+            const project = appState.projects.find(p => p.name === projectName);
+            if (project && project.path) {
+                console.log('🏠 Using fallback project directory:', project.path);
+                return project.path;
+            }
+        }
+    }
+    
+    console.log('🏠 No project context, using default directory');
+    // Default to user home or current directory
+    return null;
+}
+
+/**
+ * Initialize sidebar resize functionality
+ */
+function initializeSidebarResize() {
+    const resizeHandle = document.getElementById('sidebar-resize-handle');
+    const sidebar = document.getElementById('terminal-sidebar');
+    
+    if (!resizeHandle || !sidebar) return;
+    
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+    
+    resizeHandle.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = terminalSidebarState.width;
+        
+        document.addEventListener('mousemove', handleResize);
+        document.addEventListener('mouseup', stopResize);
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+    });
+    
+    function handleResize(e) {
+        if (!isResizing) return;
+        
+        const deltaX = startX - e.clientX;
+        const newWidth = Math.max(
+            terminalSidebarState.minWidth,
+            Math.min(terminalSidebarState.maxWidth, startWidth + deltaX)
+        );
+        
+        terminalSidebarState.width = newWidth;
+        sidebar.style.width = newWidth + 'px';
+    }
+    
+    function stopResize() {
+        isResizing = false;
+        document.removeEventListener('mousemove', handleResize);
+        document.removeEventListener('mouseup', stopResize);
+        document.body.style.cursor = '';
+        
+        // Fit terminal after resize
+        if (terminalSidebarState.globalTerminal && terminalSidebarState.isOpen) {
+            setTimeout(() => {
+                const fitAddon = terminalSidebarState.globalTerminal._addonManager._addons.find(
+                    addon => addon.instance.constructor.name === 'FitAddon'
+                );
+                if (fitAddon) {
+                    fitAddon.instance.fit();
+                }
+            }, 50);
+        }
+    }
+}
+
+/**
+ * Global keyboard shortcuts - Phase 4 Implementation
+ */
+function setupGlobalKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ctrl+` or Cmd+` to toggle terminal
+        if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+            e.preventDefault();
+            toggleTerminalSidebar();
+        }
+        
+        // Ctrl+N or Cmd+N to create new project
+        if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+            e.preventDefault();
+            if (appContext.currentView === 'dashboard') {
+                openCreateProjectModal();
+            }
+        }
+        
+        // Ctrl+, or Cmd+, to open settings
+        if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+            e.preventDefault();
+            openSettingsModal();
+        }
+        
+        // Escape to close modals or go back
+        if (e.key === 'Escape') {
+            // Go back to dashboard from project view
+            if (appContext.currentView === 'project-viewer') {
+                showDashboard();
+            }
+            // Close settings
+            else if (appContext.currentView === 'settings') {
+                enhancedCloseSettingsModal();
+            }
+            // Close create project modal
+            else if (document.getElementById('create-project-modal').classList.contains('show')) {
+                closeCreateProjectModal();
+            }
+        }
+        
+        // Ctrl+1, Ctrl+2 for tab switching in project viewer
+        if ((e.ctrlKey || e.metaKey) && appContext.currentView === 'project-viewer') {
+            if (e.key === '1') {
+                e.preventDefault();
+                showProjectTab('component-library');
+            } else if (e.key === '2') {
+                e.preventDefault();
+                showProjectTab('workflows');
+            }
+        }
+    });
+}
+
+/**
+ * Context Management System - Phase 3 Implementation
+ */
+
+// Prevent recursive updates
+let isUpdatingContext = false;
+
+/**
+ * Update application context and notify terminal
+ */
+function updateAppContext(updates) {
+    // Prevent infinite loops
+    if (isUpdatingContext) {
+        return;
+    }
+    
+    const previousContext = { ...appContext };
+    
+    // Check if there are actual changes to prevent unnecessary updates
+    let hasChanges = false;
+    for (const [key, value] of Object.entries(updates)) {
+        if (JSON.stringify(appContext[key]) !== JSON.stringify(value)) {
+            hasChanges = true;
+            break;
+        }
+    }
+    
+    if (!hasChanges) {
+        console.log('🔄 No context changes detected, skipping update');
+        return; // No actual changes, skip update
+    }
+    
+    console.log('✅ Context changes detected, proceeding with update');
+    
+    isUpdatingContext = true;
+    
+    try {
+        Object.assign(appContext, updates);
+        
+        // Log only significant context changes
+        const changedKeys = Object.keys(updates);
+        const significantKeys = changedKeys.filter(key => 
+            !key.includes('breadcrumbs') && !key.includes('recentActions')
+        );
+        
+        // Disable context logging for now to reduce noise
+        // if (significantKeys.length > 0) {
+        //     console.log('📝 Context updated:', significantKeys.join(', '));
+        // }
+        
+        // Update terminal working directory if project changed
+        if (updates.activeProject && updates.activeProject !== previousContext.activeProject) {
+            updateTerminalContext();
+        }
+        
+        // Update breadcrumbs only if view/project changed
+        if (updates.currentView || updates.activeProject || updates.activeTab) {
+            updateBreadcrumbsAndStatus();
+        }
+        
+        // Emit context change event for other components
+        if (significantKeys.length > 0) {
+            window.dispatchEvent(new CustomEvent('contextChange', { 
+                detail: { previous: previousContext, current: appContext, updates } 
+            }));
+        }
+    } finally {
+        isUpdatingContext = false;
+    }
+}
+
+/**
+ * Update terminal working directory based on current context
+ */
+function updateTerminalContext() {
+    const project = appContext.activeProject;
+    if (project && project.path) {
+        appContext.terminalCwd = project.path;
+        console.log(`📁 Terminal context updated to: ${project.path}`);
+        // No longer sending cd commands to terminal - using .env file approach instead
+    } else {
+        appContext.terminalCwd = null;
+    }
+}
+
+/**
+ * Update breadcrumbs and status bar without triggering context updates
+ */
+function updateBreadcrumbsAndStatus() {
+    // Calculate breadcrumbs without modifying appContext
+    const breadcrumbs = ['Home'];
+    
+    if (appContext.currentView === 'project-viewer' && appContext.activeProject) {
+        breadcrumbs.push(appContext.activeProject.name);
+        if (appContext.activeTab) {
+            breadcrumbs.push(appContext.activeTab.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()));
+        }
+    } else if (appContext.currentView === 'settings') {
+        breadcrumbs.push('Settings');
+    }
+    
+    // Update breadcrumbs DOM directly
+    const breadcrumbsElement = document.getElementById('breadcrumbs');
+    if (breadcrumbsElement) {
+        breadcrumbsElement.innerHTML = breadcrumbs
+            .map((crumb, index) => {
+                const isLast = index === breadcrumbs.length - 1;
+                if (isLast) {
+                    return `<span class="breadcrumb-item">${crumb}</span>`;
+                } else {
+                    return `<span class="breadcrumb-item">${crumb}</span><span class="breadcrumb-separator">›</span>`;
+                }
+            })
+            .join('');
+    }
+    
+    // Update terminal status
+    const terminalStatus = document.getElementById('terminal-status');
+    if (terminalStatus) {
+        const indicator = terminalStatus.querySelector('.status-indicator');
+        
+        if (terminalSidebarState.globalPid) {
+            indicator.className = 'status-indicator';
+            terminalStatus.title = 'Terminal Active';
+        } else {
+            indicator.className = 'status-indicator inactive';
+            terminalStatus.title = 'Terminal Inactive';
+        }
+    }
+    
+    // Update server status
+    const serverStatus = document.getElementById('server-status');
+    if (serverStatus) {
+        const indicator = serverStatus.querySelector('.status-indicator');
+        
+        if (appContext.serverStatus.running) {
+            indicator.className = 'status-indicator';
+            serverStatus.title = `Server Active :${appContext.serverStatus.port}`;
+        } else {
+            indicator.className = 'status-indicator inactive';
+            serverStatus.title = 'Server Inactive';
+        }
+    }
+    
+    // Update context info
+    const contextInfo = document.getElementById('context-info');
+    if (contextInfo) {
+        if (appContext.activeProject) {
+            contextInfo.title = `Project: ${appContext.activeProject.name}`;
+        } else {
+            contextInfo.title = 'Context Ready';
+        }
+    }
+    
+    // Store breadcrumbs in appContext without triggering updates
+    appContext.breadcrumbs = breadcrumbs;
+}
+
+/**
+ * Track user action for context awareness
+ */
+function trackAction(action, data = {}) {
+    const actionEntry = {
+        timestamp: Date.now(),
+        action,
+        data,
+        context: {
+            view: appContext.currentView,
+            project: appContext.activeProject?.name,
+            tab: appContext.activeTab
+        }
+    };
+    
+    appContext.recentActions.unshift(actionEntry);
+    
+    // Keep only last 50 actions
+    if (appContext.recentActions.length > 50) {
+        appContext.recentActions = appContext.recentActions.slice(0, 50);
+    }
+    
+    // Only log very important actions to reduce noise
+    const significantActions = ['create_project', 'open_project'];
+    if (significantActions.includes(action)) {
+        console.log('🎯 Action tracked:', action);
+    }
+}
+
+/**
+ * Get current context for AI/Agent consumption
+ */
+function getContextForAI() {
+    return {
+        currentView: appContext.currentView,
+        activeProject: appContext.activeProject ? {
+            name: appContext.activeProject.name,
+            template: appContext.activeProject.templateId,
+            status: appContext.activeProject.status
+        } : null,
+        activeTab: appContext.activeTab,
+        terminalCwd: appContext.terminalCwd,
+        breadcrumbs: appContext.breadcrumbs,
+        recentActions: appContext.recentActions.slice(0, 10), // Last 10 actions
+        serverStatus: appContext.serverStatus
+    };
+}
+
+// Track last terminal environment to avoid unnecessary updates
+let lastTerminalEnvironment = null;
+
+/**
+ * Update project environment file with context variables
+ */
+async function updateProjectEnvironment() {
+    const project = appContext.activeProject;
+    if (!project || !project.path) return;
+    
+    // Create environment signature to check if update is needed
+    const currentEnvSignature = {
+        projectId: project.id,
+        currentView: appContext.currentView,
+        activeTab: appContext.activeTab,
+        currentFile: appContext.currentFile
+    };
+    
+    // Only update if environment actually changed
+    if (lastTerminalEnvironment && 
+        JSON.stringify(lastTerminalEnvironment) === JSON.stringify(currentEnvSignature)) {
+        console.log('📋 Environment unchanged, skipping update');
+        return; // No changes, skip update
+    }
+    
+    console.log('📝 Environment changed, updating .claude-env file:', {
+        from: lastTerminalEnvironment,
+        to: currentEnvSignature
+    });
+    
+    try {
+        // Prepare environment variables for the .claude-env file
+        const envVars = {
+            PROJECT_NAME: project.name,
+            PROJECT_ID: project.id,
+            PROJECT_TEMPLATE: project.templateId || '',
+            PROJECT_PATH: project.path,
+            CURRENT_VIEW: appContext.currentView,
+            ACTIVE_TAB: appContext.activeTab || '',
+        };
+        
+        if (appContext.currentFile) {
+            envVars.CURRENT_FILE = appContext.currentFile;
+        }
+        
+        // Update the environment file via IPC
+        const result = await window.electronAPI.updateProjectEnv(project.path, envVars);
+        
+        if (result.success) {
+            // Update last environment state
+            lastTerminalEnvironment = currentEnvSignature;
+            console.log('🌍 Project environment file updated with context variables');
+        } else {
+            console.error('Failed to update project environment:', result.error);
+        }
+    } catch (error) {
+        console.error('Error updating project environment:', error);
+    }
+}
+
+/**
+ * Enhanced project viewer that updates context and shows project page
+ */
+function enhancedOpenProjectViewer(projectId) {
+    const project = appState.projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    // Update context using functional approach
+    console.log('🔄 Updating context for project:', project.name);
+    updateAppContext({
+        currentView: 'project-viewer',
+        activeProject: project,
+        activeTab: 'component-library'
+    });
+    
+    trackAction('open_project', { projectId, projectName: project.name });
+    
+    // Create initial environment file for Claude Code context
+    updateProjectEnvironment();
+    
+    // Show project page after context is updated
+    showProjectPage(project);
+}
+
+
+/**
+ * Enhanced settings modal that updates context
+ */
+const originalOpenSettingsModal = window.openSettingsModal;
+function openSettingsModal() {
+    updateAppContext({
+        currentView: 'settings',
+        activeProject: null,
+        activeTab: null
+    });
+    
+    trackAction('open_settings');
+    
+    if (originalOpenSettingsModal) {
+        return originalOpenSettingsModal();
+    }
+}
+
+/**
+ * Enhanced close functions that update context
+ */
+/**
+ * Enhanced navigation functions
+ */
+function showDashboard() {
+    updateAppContext({
+        currentView: 'dashboard',
+        activeProject: null,
+        activeTab: null
+    });
+    
+    trackAction('close_project');
+    
+    // Show dashboard view and hide project view
+    document.getElementById('dashboard-view').style.display = 'flex';
+    document.getElementById('project-view').style.display = 'none';
+    
+    // Show dashboard header
+    const header = document.querySelector('.header');
+    if (header) {
+        header.style.display = 'flex';
+    }
+}
+
+function showProjectPage(project) {
+    console.log('📖 Showing project page for:', project.name);
+    console.log('📝 Current context project:', appContext.activeProject?.name);
+    
+    // Update project title
+    const projectTitleElement = document.getElementById('project-title');
+    if (projectTitleElement) {
+        projectTitleElement.textContent = project.name;
+    }
+    
+    // Hide dashboard view and dashboard header, show project view
+    document.getElementById('dashboard-view').style.display = 'none';
+    document.getElementById('project-view').style.display = 'flex';
+    
+    // Hide dashboard header since project has its own header
+    const header = document.querySelector('.header');
+    if (header) {
+        header.style.display = 'none';
+    }
+    
+    // Ensure context is updated before loading content
+    if (appContext.activeProject !== project) {
+        console.warn('Project context mismatch, updating...');
+        updateAppContext({ activeProject: project });
+    }
+    
+    // Wait a bit for context to settle, then load content
+    setTimeout(() => {
+        console.log('📝 Final context project:', appContext.activeProject?.name);
+        showProjectTab('component-library');
+    }, 10);
+}
+
+function showProjectTab(tabId) {
+    // Update tab buttons
+    document.querySelectorAll('.project-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabId);
+    });
+    
+    // Update context
+    updateAppContext({ activeTab: tabId });
+    trackAction('switch_tab', { tabId });
+    
+    // Load tab content
+    const contentArea = document.getElementById('project-content');
+    const project = appContext.activeProject;
+    
+    if (!project) {
+        console.error('No active project found for tab switching');
+        return;
+    }
+    
+    if (tabId === 'component-library') {
+        showComponentLibraryContent(contentArea, project);
+    } else if (tabId === 'workflows') {
+        showWorkflowsContent(contentArea, project);
+    }
+    
+    // Update project environment file when tab changes (only if project context exists)
+    if (appContext.activeProject) {
+        updateProjectEnvironment();
+    }
+}
+
+function enhancedCloseSettingsModal() {
+    updateAppContext({
+        currentView: 'dashboard'
+    });
+    
+    trackAction('close_settings');
+    
+    // Call original close logic
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+}
+
+/**
+ * Override global functions to add context awareness
+ */
+function setupContextAwareness() {
+    // Override global functions
+    window.openProjectViewer = enhancedOpenProjectViewer;
+    window.enhancedOpenProjectViewer = enhancedOpenProjectViewer; // Expose for onclick
+    window.switchProjectTab = showProjectTab;
+    window.showProjectTab = showProjectTab;
+    window.showDashboard = showDashboard;
+    window.showProjectPage = showProjectPage;
+    window.openSettingsModal = openSettingsModal;
+    window.closeSettingsModal = enhancedCloseSettingsModal;
+    
+    // Listen for context changes to update project environment
+    window.addEventListener('contextChange', (event) => {
+        const { updates } = event.detail;
+        if (updates.activeProject) {
+            updateProjectEnvironment();
+        }
+    });
+    
+    console.log('🧠 Context awareness system initialized');
+}
+
+
 // Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', () => {
+    initializeApp();
+    initializeSidebarResize();
+    setupGlobalKeyboardShortcuts();
+    setupContextAwareness();
+});

@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <!-- Lucide Icons - Modern thin outline icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <style>
         * {
             margin: 0;
@@ -55,14 +57,18 @@
         }
 
         .logo::before {
-            content: '✨';
-            font-size: 16px;
+            content: '';
+            display: none;
+        }
+        
+        .logo-icon {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
         }
 
         .app-title {
-            font-size: 1.5rem;
-            font-weight: 300;
-            letter-spacing: -0.02em;
+            display: none;
         }
 
         .header-actions {
@@ -79,13 +85,21 @@
         }
 
         .view-btn {
-            padding: 0.5rem 1rem;
+            padding: 0.75rem;
             background: transparent;
             border: none;
             color: #888;
             cursor: pointer;
-            font-size: 0.9rem;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .view-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
         }
 
         .view-btn.active {
@@ -93,32 +107,25 @@
             color: white;
         }
 
-        .settings-btn {
-            background: #333;
-            border: none;
-            color: white;
-            padding: 0.75rem;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: all 0.2s;
-            margin-right: 0.5rem;
-        }
-
-        .settings-btn:hover {
-            background: #555;
-            transform: translateY(-1px);
-        }
 
         .create-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
             color: white;
-            padding: 0.75rem 1.5rem;
+            padding: 0.75rem;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 500;
             transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .create-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
         }
 
         .create-btn:hover {
@@ -128,14 +135,335 @@
         .main-content {
             flex: 1;
             display: flex;
+            overflow: hidden;
+        }
+        
+        .content-area {
+            flex: 1;
+            display: flex;
             flex-direction: column;
             overflow: hidden;
         }
+        
+        .terminal-sidebar {
+            width: 400px;
+            background: #1a1a1a;
+            border-left: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s ease, margin-right 0.3s ease;
+            position: relative;
+        }
+        
+        .terminal-sidebar.hidden {
+            width: 0;
+            margin-right: -1px;
+            overflow: hidden;
+        }
+        
+        .terminal-sidebar-header {
+            background: #2a2a2a;
+            border-bottom: 1px solid #333;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 48px;
+        }
+        
+        .terminal-sidebar-title {
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .terminal-sidebar-title svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        
+        .terminal-sidebar-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .terminal-sidebar-btn {
+            background: #333;
+            border: none;
+            color: #ccc;
+            padding: 0.25rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .terminal-sidebar-btn:hover {
+            background: #444;
+            color: white;
+        }
+        
+        .terminal-sidebar-btn svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+        }
+        
+        .terminal-sidebar-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: transparent;
+            cursor: col-resize;
+            z-index: 10;
+        }
+        
+        .sidebar-resize-handle:hover {
+            background: #667eea;
+        }
+        
+        .header-btn {
+            background: #333;
+            border: none;
+            color: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-right: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .header-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
 
+        .header-btn:hover {
+            background: #555;
+            transform: translateY(-1px);
+        }
+        
+        /* Icon styling for Lucide icons */
+        .icon {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            display: inline-block;
+        }
+        
+        .view-btn .icon {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .header-btn .icon {
+            width: 16px;
+            height: 16px;
+        }
+        
+        .project-tab .icon {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .terminal-sidebar-btn .icon {
+            width: 12px;
+            height: 12px;
+        }
+        
+        /* Form input with icon styling */
+        .form-input-with-icon {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        
+        .form-icon {
+            position: absolute;
+            left: 12px;
+            z-index: 2;
+            color: #888;
+            pointer-events: none;
+        }
+        
+        .form-input-with-icon .form-input {
+            padding-left: 40px;
+        }
+        
+        .form-icon.icon {
+            width: 16px;
+            height: 16px;
+        }
+        
+        /* Status Bar Styles */
+        .status-bar {
+            background: #1f1f1f;
+            border-top: 1px solid #333;
+            padding: 0.5rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #888;
+            min-height: 32px;
+        }
+        
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .status-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .breadcrumb-item {
+            color: #ccc;
+        }
+        
+        .breadcrumb-separator {
+            color: #555;
+            font-size: 0.7rem;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .status-item svg {
+            width: 12px;
+            height: 12px;
+            fill: currentColor;
+        }
+        
+        .status-item .icon {
+            width: 12px;
+            height: 12px;
+            margin-left: 0.25rem;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        
+        .status-indicator.inactive {
+            background: #666;
+        }
+        
+        .status-indicator.error {
+            background: #f44336;
+        }
+
+        .view-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
         .projects-container {
             flex: 1;
             padding: 2rem;
             overflow-y: auto;
+        }
+        
+        .project-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #333;
+            background: #1f1f1f;
+            min-height: 64px;
+        }
+        
+        .project-header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .back-btn {
+            background: #333;
+            border: none;
+            color: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .back-btn:hover {
+            background: #555;
+            transform: translateY(-1px);
+        }
+        
+        .back-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        
+        .project-title {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: white;
+            margin: 0;
+        }
+        
+        .project-header-right {
+            display: flex;
+            align-items: center;
+        }
+        
+        .project-tabs {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #444;
+        }
+        
+        .project-content-area {
+            flex: 1;
+            overflow: hidden;
         }
 
         .empty-state {
@@ -155,22 +483,24 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 32px;
             margin-bottom: 1.5rem;
+            color: #667eea;
+        }
+        
+        .empty-icon svg {
+            width: 32px;
+            height: 32px;
+            fill: currentColor;
         }
 
         .empty-title {
             font-size: 1.5rem;
             font-weight: 400;
-            margin-bottom: 0.5rem;
+            margin-bottom: 2rem;
         }
 
         .empty-subtitle {
-            color: #888;
-            font-size: 1rem;
-            margin-bottom: 2rem;
-            max-width: 400px;
-            line-height: 1.5;
+            display: none;
         }
 
         .projects-grid {
@@ -280,8 +610,18 @@
             background: none;
             border: none;
             color: #888;
-            font-size: 1.5rem;
             cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .close-btn:hover {
+            background: #333;
+            color: white;
         }
 
         .form-group {
@@ -434,6 +774,15 @@
             transition: all 0.2s;
             border-right: 1px solid #444;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .project-tab svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
         }
 
         .project-tab:last-child {
@@ -931,6 +1280,97 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* Modern loading animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes slideInLeft {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        @keyframes scaleIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
+        /* Terminal loading improvements */
+        .terminal-loading {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .loading-spinner {
+            animation: spin 1s linear infinite, pulse 2s ease-in-out infinite;
+        }
+        
+        /* Terminal sidebar animations */
+        .terminal-sidebar {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .terminal-sidebar.hidden {
+            transform: translateX(100%);
+        }
+        
+        /* Status indicator animations */
+        .status-indicator {
+            transition: all 0.3s ease;
+        }
+        
+        .status-indicator:not(.inactive) {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        /* Project view animations */
+        .view-container {
+            animation: fadeIn 0.4s ease-out;
+        }
+        
+        /* Button hover animations */
+        .header-btn, .project-tab, .terminal-sidebar-btn {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .header-btn:hover, .project-tab:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Terminal ready state indicator */
+        .claude-ready-indicator {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .claude-ready-indicator::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(76, 175, 80, 0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
 
         .server-loading p, .server-error h3, .server-stopped p {
             color: #333;
@@ -1015,6 +1455,8 @@
             transition: all 0.2s;
             border-bottom: 2px solid transparent;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
         }
 
         .settings-tab:hover {
@@ -1189,61 +1631,177 @@
     <div class="app-container">
         <header class="header">
             <div class="header-left">
-                <div class="logo"></div>
-                <h1 class="app-title">Design Tool</h1>
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"></polygon>
+                    </svg>
+                </div>
             </div>
             <div class="header-actions">
                 <div class="view-toggle">
-                    <button class="view-btn active" data-view="grid">Grid</button>
-                    <button class="view-btn" data-view="list">List</button>
+                    <button class="view-btn active" data-view="grid" title="Grid View">
+                        <i data-lucide="grid-3x3" class="icon"></i>
+                    </button>
+                    <button class="view-btn" data-view="list" title="List View">
+                        <i data-lucide="list" class="icon"></i>
+                    </button>
                 </div>
-                <button class="settings-btn" onclick="openSettingsModal()" title="Settings">⚙️</button>
-                <button class="create-btn" onclick="openCreateProjectModal()">New Project</button>
+                <button id="header-terminal-btn" class="header-btn" onclick="toggleTerminalSidebar()" title="Terminal">
+                    <i data-lucide="terminal" class="icon"></i>
+                </button>
+                <button class="header-btn" onclick="openSettingsModal()" title="Settings">
+                    <i data-lucide="settings" class="icon"></i>
+                </button>
+                <button class="create-btn" onclick="openCreateProjectModal()" title="Create Project">
+                    <i data-lucide="plus" class="icon"></i>
+                </button>
             </div>
         </header>
 
         <main class="main-content">
-            <div class="projects-container">
-                <div id="empty-state" class="empty-state">
-                    <div class="empty-icon">📁</div>
-                    <h2 class="empty-title">No projects yet</h2>
-                    <p class="empty-subtitle">Create your first React project with Storybook to get started building amazing user interfaces.</p>
-                    <button class="create-btn" onclick="openCreateProjectModal()">Create Your First Project</button>
+            <div class="content-area">
+                <!-- Dashboard View -->
+                <div id="dashboard-view" class="view-container">
+                    <div class="projects-container">
+                        <div id="empty-state" class="empty-state">
+                            <div class="empty-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                            </div>
+                            <h2 class="empty-title">No projects yet</h2>
+                            <p class="empty-subtitle">Create your first React project with Storybook to get started building amazing user interfaces.</p>
+                            <button class="create-btn" onclick="openCreateProjectModal()" title="Create New Project">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        <div id="projects-display" class="projects-grid" style="display: none;">
+                            <!-- Projects will be dynamically inserted here -->
+                        </div>
+                    </div>
                 </div>
                 
-                <div id="projects-display" class="projects-grid" style="display: none;">
-                    <!-- Projects will be dynamically inserted here -->
+                <!-- Project View -->
+                <div id="project-view" class="view-container" style="display: none;">
+                    <div class="project-header">
+                        <div class="project-header-left">
+                            <button class="back-btn" onclick="showDashboard()" title="Dashboard">
+                                <i data-lucide="arrow-left" class="icon"></i>
+                            </button>
+                            <h1 id="project-title" class="project-title">Project Name</h1>
+                        </div>
+                        <div class="project-header-right">
+                            <div class="project-tabs">
+                                <button class="project-tab active" data-tab="component-library" onclick="showProjectTab('component-library')" title="Components">
+                                    <i data-lucide="package" class="icon"></i>
+                                </button>
+                                <button class="project-tab" data-tab="workflows" onclick="showProjectTab('workflows')" title="Workflows">
+                                    <i data-lucide="zap" class="icon"></i>
+                                </button>
+                            </div>
+                            <button id="project-terminal-btn" class="header-btn" onclick="toggleTerminalSidebar()" title="Terminal" style="margin-left: 1rem;">
+                                <i data-lucide="terminal" class="icon"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="project-content" class="project-content-area">
+                        <!-- Project content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Terminal Sidebar -->
+            <div id="terminal-sidebar" class="terminal-sidebar hidden">
+                <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+                <div class="terminal-sidebar-header">
+                    <div class="terminal-sidebar-title">
+                        <i data-lucide="terminal" class="icon"></i>
+                    </div>
+                    <div class="terminal-sidebar-controls">
+                        <button class="terminal-sidebar-btn" onclick="clearTerminal()" title="Clear Terminal">
+                            <i data-lucide="trash-2" class="icon"></i>
+                        </button>
+                        <button class="terminal-sidebar-btn" onclick="restartTerminal()" title="Restart Terminal">
+                            <i data-lucide="refresh-cw" class="icon"></i>
+                        </button>
+                        <button class="terminal-sidebar-btn" onclick="toggleTerminalSidebar()" title="Close Terminal">
+                            <i data-lucide="x" class="icon"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="terminal-sidebar-content" id="terminal-sidebar-content">
+                    <!-- Terminal content will be injected here -->
                 </div>
             </div>
         </main>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-left">
+                <div class="breadcrumbs" id="breadcrumbs">
+                    <span class="breadcrumb-item">Home</span>
+                </div>
+            </div>
+            <div class="status-right">
+                <div class="status-item" id="terminal-status" title="Terminal Status">
+                    <div class="status-indicator inactive"></div>
+                    <i data-lucide="terminal" class="icon"></i>
+                </div>
+                <div class="status-item" id="server-status" title="Server Status">
+                    <div class="status-indicator inactive"></div>
+                    <i data-lucide="server" class="icon"></i>
+                </div>
+                <div class="status-item" id="context-info" title="Context Ready">
+                    <div class="status-indicator active"></div>
+                    <i data-lucide="info" class="icon"></i>
+                </div>
+            </div>
+        </div>
+        
     </div>
 
     <!-- Create Project Modal -->
     <div id="create-project-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Create New Project</h3>
-                <button class="close-btn" onclick="closeCreateProjectModal()">&times;</button>
+                <h3 class="modal-title" title="Create New Project">
+                    <i data-lucide="plus-circle" class="icon"></i>
+                </h3>
+                <button class="close-btn" onclick="closeCreateProjectModal()" title="Close">
+                    <i data-lucide="x" class="icon"></i>
+                </button>
             </div>
             <form id="create-project-form">
                 <div class="form-group">
-                    <label for="project-name" class="form-label">Project Name</label>
-                    <input type="text" id="project-name" name="projectName" class="form-input" 
-                           placeholder="Enter project name" required>
+                    <div class="form-input-with-icon">
+                        <i data-lucide="folder" class="form-icon icon" title="Project Name"></i>
+                        <input type="text" id="project-name" name="projectName" class="form-input" 
+                               placeholder="Enter project name" required>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="project-template" class="form-label">Template</label>
-                    <select id="project-template" name="projectTemplate" class="form-input" required>
-                        <option value="">Select a template</option>
-                        <option value="react-basic">React Basic</option>
-                        <option value="react-typescript">React + TypeScript</option>
-                        <option value="react-storybook">React + Storybook</option>
-                        <option value="react-storybook-tailwind">React + Storybook + Tailwind</option>
-                    </select>
+                    <div class="form-input-with-icon">
+                        <i data-lucide="layers" class="form-icon icon" title="Template"></i>
+                        <select id="project-template" name="projectTemplate" class="form-input" required>
+                            <option value="">Select a template</option>
+                            <option value="react-basic">React Basic</option>
+                            <option value="react-typescript">React + TypeScript</option>
+                            <option value="react-storybook">React + Storybook</option>
+                            <option value="react-storybook-tailwind">React + Storybook + Tailwind</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeCreateProjectModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Project</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateProjectModal()" title="Cancel">
+                        <i data-lucide="x" class="icon"></i>
+                    </button>
+                    <button type="submit" class="btn btn-primary" title="Create Project">
+                        <i data-lucide="plus" class="icon"></i>
+                    </button>
                 </div>
             </form>
         </div>
@@ -1253,19 +1811,23 @@
     <div id="settings-modal" class="modal">
         <div class="modal-content settings-modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Settings</h3>
-                <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
+                <h3 class="modal-title" title="Settings">
+                    <i data-lucide="settings" class="icon"></i>
+                </h3>
+                <button class="close-btn" onclick="closeSettingsModal()" title="Close">
+                    <i data-lucide="x" class="icon"></i>
+                </button>
             </div>
             
             <div class="settings-tabs">
-                <button class="settings-tab active" data-tab="general" onclick="switchSettingsTab('general')">
-                    📁 General
+                <button class="settings-tab active" data-tab="general" onclick="switchSettingsTab('general')" title="General Settings">
+                    <i data-lucide="folder" class="icon"></i>
                 </button>
-                <button class="settings-tab" data-tab="development" onclick="switchSettingsTab('development')">
-                    ⚡ Development
+                <button class="settings-tab" data-tab="development" onclick="switchSettingsTab('development')" title="Development Settings">
+                    <i data-lucide="zap" class="icon"></i>
                 </button>
-                <button class="settings-tab" data-tab="advanced" onclick="switchSettingsTab('advanced')">
-                    🔧 Advanced
+                <button class="settings-tab" data-tab="advanced" onclick="switchSettingsTab('advanced')" title="Advanced Settings">
+                    <i data-lucide="settings-2" class="icon"></i>
                 </button>
             </div>
             
@@ -1339,8 +1901,12 @@
             </div>
             
             <div class="settings-actions">
-                <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">Reset to Defaults</button>
-                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+                <button type="button" class="btn btn-secondary" onclick="resetToDefaults()" title="Reset to Defaults">
+                    <i data-lucide="rotate-ccw" class="icon"></i>
+                </button>
+                <button type="button" class="btn btn-primary" onclick="saveSettings()" title="Save Changes">
+                    <i data-lucide="check" class="icon"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -1348,6 +1914,19 @@
     <div class="version">v0.1.0 - Phase 4 ✅</div>
     
     <script src="dev-suppress-warnings.js"></script>
+    <!-- Initialize Lucide Icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize all Lucide icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+                console.log('✅ Lucide icons initialized');
+            } else {
+                console.error('❌ Lucide library not loaded');
+            }
+        });
+    </script>
+    
     <script src="app.js"></script>
 </body>
 </html>

@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Component discovery operations
   discoverComponents: (projectId) => ipcRenderer.invoke('project:discover-components', projectId),
   
+  // Project environment operations
+  updateProjectEnv: (projectPath, envVars) => ipcRenderer.invoke('project:update-env', { projectPath, envVars }),
+  
   // Terminal PTY operations
   ptyStart: (options) => ipcRenderer.invoke('pty:start', options),
   ptyWrite: (pid, data) => ipcRenderer.send('pty:write', { pid, data }),

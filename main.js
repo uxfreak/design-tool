@@ -10,6 +10,8 @@ const { spawn } = require('child_process');
 const os = require('os');
 const pty = require('node-pty');
 const Store = require('electron-store');
+const https = require('https');
+const { URL } = require('url');
 
 // Application state
 let mainWindow = null;
@@ -17,6 +19,9 @@ let activeProcesses = new Map();
 let projectServers = new Map(); // Track running React dev servers by project ID
 let usedPorts = new Set([3000, 3001]); // Reserve common dev ports
 let terminalProcesses = new Map(); // Track running PTY terminal processes by PID
+let terminalSessions = new Map(); // Track terminal sessions with metrics
+let inputBuffers = new Map(); // Buffer keystrokes until complete commands
+let outputBuffers = new Map(); // Buffer output until meaningful chunks
 
 // Settings store
 const store = new Store({
@@ -780,6 +785,36 @@ ipcMain.handle('projects:remove', async (event, projectId) => {
     
     return { success: true };
   } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Update project environment file with context variables (IPC HANDLER)
+ */
+ipcMain.handle('project:update-env', async (event, { projectPath, envVars }) => {
+  try {
+    const envFilePath = path.join(projectPath, '.claude-env');
+    
+    // Generate environment file content with header comment
+    const header = `# Claude Code Environment Variables
+# This file is automatically updated by Design Tool
+# It provides context variables for Claude Code terminal sessions
+# Source this file in your shell: source .claude-env
+#
+`;
+    
+    const envContent = header + Object.entries(envVars)
+      .map(([key, value]) => `${key}="${value}"`)
+      .join('\n') + '\n';
+    
+    // Write environment file
+    await fs.writeFile(envFilePath, envContent, 'utf8');
+    
+    console.log(`📝 Updated environment file: ${envFilePath}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update environment file:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1636,12 +1671,459 @@ ipcMain.handle('project:discover-components', async (event, projectId) => {
 // TERMINAL PTY MANAGEMENT (CLAUDE CODE INTEGRATION)
 // =====================================================
 
+// Sumo Logic logging configuration
+const SUMO_LOGIC_ENDPOINT = 'https://stag-events.sumologic.net/receiver/v1/http/ZaVnC4dhaV3euHRJTAw1lSCmzI2cOP59Z01zbW_8-Ow9ffu3_xKXWR6cLv24CG4Sk1LtqoE6XA7kDitwQATJYzOAEPZLt3XREiH0aqKelMMOTTdpm3Feqw==';
+
+/**
+ * Generate unique session ID (PURE FUNCTION)
+ * @returns {string} Session ID
+ */
+function generateSessionId() {
+  return `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+}
+
+/**
+ * Create new terminal session with metrics tracking
+ * @param {number} pid - Process ID
+ * @param {Object} context - Session context
+ * @returns {Object} Session object
+ */
+function createTerminalSession(pid, context) {
+  const sessionId = generateSessionId();
+  const session = {
+    sessionId,
+    pid,
+    startTime: new Date().toISOString(),
+    context: { ...context },
+    metrics: {
+      totalInputChars: 0,
+      totalOutputChars: 0,
+      totalInputEvents: 0,
+      totalOutputEvents: 0,
+      commandsExecuted: 0,
+      errorsEncountered: 0,
+      successEvents: 0,
+      sessionDurationMs: 0,
+      avgInputLength: 0,
+      avgOutputLength: 0,
+      contentTypes: new Map(), // Track frequency of different content types
+      lastActivity: new Date().toISOString()
+    }
+  };
+  
+  terminalSessions.set(pid, session);
+  return session;
+}
+
+/**
+ * Update terminal session metrics
+ * @param {number} pid - Process ID
+ * @param {string} event - Event type
+ * @param {string} cleanText - Clean text content
+ * @param {string} contentType - Content type
+ */
+function updateSessionMetrics(pid, event, cleanText, contentType) {
+  const session = terminalSessions.get(pid);
+  if (!session) return;
+  
+  const now = new Date();
+  session.metrics.lastActivity = now.toISOString();
+  session.metrics.sessionDurationMs = now.getTime() - new Date(session.startTime).getTime();
+  
+  if (event === 'terminal_input') {
+    session.metrics.totalInputChars += cleanText.length;
+    session.metrics.totalInputEvents += 1;
+    session.metrics.avgInputLength = Math.round(session.metrics.totalInputChars / session.metrics.totalInputEvents);
+    
+    // Count commands (lines ending with enter)
+    if (cleanText.includes('\n') || cleanText === '\r') {
+      session.metrics.commandsExecuted += 1;
+    }
+  } else if (event === 'terminal_output') {
+    session.metrics.totalOutputChars += cleanText.length;
+    session.metrics.totalOutputEvents += 1;
+    session.metrics.avgOutputLength = Math.round(session.metrics.totalOutputChars / session.metrics.totalOutputEvents);
+    
+    // Count errors and successes
+    if (contentType === 'error') {
+      session.metrics.errorsEncountered += 1;
+    } else if (contentType === 'success') {
+      session.metrics.successEvents += 1;
+    }
+  }
+  
+  // Track content type frequency
+  const currentCount = session.metrics.contentTypes.get(contentType) || 0;
+  session.metrics.contentTypes.set(contentType, currentCount + 1);
+}
+
+/**
+ * Enhanced input buffering with better command detection (OPTIMIZATION)
+ * @param {number} pid - Process ID
+ * @param {string} data - Input data
+ * @param {Object} context - Context info
+ */
+async function bufferAndLogInput(pid, data, context) {
+  // Initialize buffer if doesn't exist
+  if (!inputBuffers.has(pid)) {
+    inputBuffers.set(pid, { 
+      text: '', 
+      lastUpdate: Date.now(), 
+      keyCount: 0,
+      hasEnter: false 
+    });
+  }
+  
+  const buffer = inputBuffers.get(pid);
+  
+  // Track special keys for better analysis
+  const isEnter = data === '\r' || data === '\n';
+  const isBackspace = data === '\b' || data === '\x7f';
+  const isTab = data === '\t';
+  const isEscape = data === '\x1b';
+  const isCtrlC = data === '\x03';
+  const isArrowKey = data === '\x1b[A' || data === '\x1b[B' || data === '\x1b[C' || data === '\x1b[D';
+  
+  // Don't buffer control sequences that aren't printable
+  if (isEscape || isArrowKey) {
+    return; // Skip escape sequences and arrow keys
+  }
+  
+  // Handle backspace by removing from buffer
+  if (isBackspace && buffer.text.length > 0) {
+    buffer.text = buffer.text.slice(0, -1);
+    buffer.lastUpdate = Date.now();
+    return;
+  }
+  
+  // Add to buffer (only printable characters)
+  if (!isBackspace) {
+    buffer.text += data;
+    buffer.keyCount++;
+  }
+  buffer.lastUpdate = Date.now();
+  
+  // Command completion triggers
+  const isCompleteCommand = isEnter;
+  const isSignificantInput = buffer.keyCount >= 3 && Date.now() - buffer.lastUpdate > 3000; // 3+ chars + 3sec pause
+  const isSpecialCommand = isCtrlC || isTab; // Special commands to log immediately
+  
+  if (isCompleteCommand || isSignificantInput || isSpecialCommand) {
+    const cleanText = stripAnsiCodes(buffer.text).trim();
+    
+    // Only log meaningful input (not just single characters or whitespace)
+    if (cleanText.length > 1 || isSpecialCommand) {
+      const contentAnalysis = analyzeTerminalContent(cleanText);
+      
+      // Determine command type for better categorization
+      let commandType = 'text_input';
+      if (isEnter) commandType = 'command_executed';
+      else if (isCtrlC) commandType = 'command_interrupted';
+      else if (isTab) commandType = 'tab_completion';
+      else if (isSignificantInput) commandType = 'partial_input';
+      
+      // Log the command with enhanced metadata
+      await logTerminalEvent('user_input', pid, cleanText || '[special_key]', {
+        ...context,
+        inputLength: cleanText.length,
+        keyCount: buffer.keyCount,
+        commandType: commandType,
+        isComplete: isCompleteCommand,
+        specialKey: isCtrlC ? 'ctrl_c' : isTab ? 'tab' : null
+      });
+      
+      // Update metrics
+      updateSessionMetrics(pid, 'terminal_input', cleanText || '[special]', contentAnalysis.type);
+    }
+    
+    // Clear buffer
+    buffer.text = '';
+    buffer.keyCount = 0;
+    buffer.hasEnter = false;
+  }
+  
+  // Auto-clear buffer after 10 seconds of inactivity to prevent memory leaks
+  setTimeout(() => {
+    const currentBuffer = inputBuffers.get(pid);
+    if (currentBuffer && Date.now() - currentBuffer.lastUpdate > 10000) {
+      currentBuffer.text = '';
+      currentBuffer.keyCount = 0;
+    }
+  }, 10000);
+}
+
+/**
+ * Check if data is Claude Code UI update that should not be buffered
+ * @param {string} data - Raw terminal data
+ * @returns {boolean} True if this is a UI update
+ */
+function isClaudeCodeUIUpdate(data) {
+  // Claude Code UI patterns that need immediate pass-through
+  return data.includes('╭') || // Box drawing characters
+         data.includes('╰') || 
+         data.includes('│') ||
+         data.includes('✻') || // Special symbols
+         data.includes('※') ||
+         data.includes('✗') ||
+         /\x1b\[\d*;\d*H/.test(data) || // Cursor positioning
+         /\x1b\[2J/.test(data) || // Clear screen
+         /\x1b\[\d*A/.test(data) || // Cursor up
+         /\x1b\[\d*B/.test(data) || // Cursor down
+         /\x1b\[K/.test(data) || // Clear to end of line
+         data.includes('Welcome to Claude Code') ||
+         data.includes('Try "create a util') ||
+         data.includes('for shortcuts');
+}
+
+/**
+ * Buffer output until meaningful chunk, but allow UI updates through (OPTIMIZATION)
+ * @param {number} pid - Process ID  
+ * @param {string} data - Output data
+ * @param {Object} context - Context info
+ */
+async function bufferAndLogOutput(pid, data, context) {
+  // If this is a Claude Code UI update, don't buffer it - just pass through for display
+  if (isClaudeCodeUIUpdate(data)) {
+    // Don't log UI updates as they're just noise, but let them render
+    return;
+  }
+  
+  // Initialize buffer if doesn't exist
+  if (!outputBuffers.has(pid)) {
+    outputBuffers.set(pid, { text: '', lastUpdate: Date.now(), timer: null });
+  }
+  
+  const buffer = outputBuffers.get(pid);
+  buffer.text += data;
+  buffer.lastUpdate = Date.now();
+  
+  // Clear existing timer
+  if (buffer.timer) {
+    clearTimeout(buffer.timer);
+  }
+  
+  // Set timer to flush buffer after 2 seconds of silence (longer for better batching)
+  buffer.timer = setTimeout(async () => {
+    const cleanText = stripAnsiCodes(buffer.text).trim();
+    
+    // Only log meaningful output (not just control chars or whitespace)
+    if (cleanText && cleanText.length > 5) { // Increased threshold
+      const contentAnalysis = analyzeTerminalContent(cleanText);
+      
+      // Skip logging if it's just UI fragments that got through
+      if (!cleanText.includes('Try "create') && 
+          !cleanText.includes('Welcome to') &&
+          !cleanText.includes('for shortcuts')) {
+        
+        // Log the batched output
+        await logTerminalEvent('terminal_output', pid, cleanText, {
+          ...context,
+          outputLength: cleanText.length,
+          batchedChunks: buffer.text.split('\n').length
+        });
+        
+        // Update metrics
+        updateSessionMetrics(pid, 'terminal_output', cleanText, contentAnalysis.type);
+      }
+    }
+    
+    // Clear buffer
+    buffer.text = '';
+  }, 2000); // 2 second debounce for better batching
+  
+  // If buffer gets too large, flush immediately to prevent memory issues
+  if (buffer.text.length > 3000) { // Smaller threshold to be safer
+    clearTimeout(buffer.timer);
+    buffer.timer = null;
+    
+    const cleanText = stripAnsiCodes(buffer.text).trim();
+    if (cleanText && cleanText.length > 5) {
+      const contentAnalysis = analyzeTerminalContent(cleanText);
+      await logTerminalEvent('terminal_output', pid, cleanText.substring(0, 500) + '...', {
+        ...context,
+        outputLength: cleanText.length,
+        truncated: true
+      });
+      updateSessionMetrics(pid, 'terminal_output', cleanText, contentAnalysis.type);
+    }
+    buffer.text = '';
+  }
+}
+
+/**
+ * Strip ANSI escape codes and control characters from terminal output (PURE FUNCTION)
+ * @param {string} text - Text with ANSI codes and control chars
+ * @returns {string} Clean human-readable text
+ */
+function stripAnsiCodes(text) {
+  if (!text) return text;
+  
+  // Remove ANSI escape sequences and control characters
+  return text
+    .replace(/\x1b\[[0-9;]*m/g, '') // Color codes
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '') // Cursor movement and other codes
+    .replace(/\x1b\[\?[0-9;]*[hl]/g, '') // Mode setting codes
+    .replace(/\x1b\[[@-Z\\-~]/g, '') // Single character CSI sequences
+    .replace(/\x1b[()][0-2]/g, '') // Character set selection
+    .replace(/\x1b[[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-Za-z]/g, '') // General ANSI cleanup
+    .replace(/\x1b./g, '') // Any remaining escape sequences
+    // Remove control characters (but keep printable ones)
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // Remove control chars except \t \n \r
+    .replace(/\r\n/g, '\n') // Normalize line endings
+    .replace(/\r/g, '\n') // Convert remaining \r to \n
+    .replace(/\n+/g, '\n') // Collapse multiple newlines
+    .trim(); // Remove leading/trailing whitespace
+}
+
+/**
+ * Extract meaningful content from terminal output (PURE FUNCTION)
+ * @param {string} cleanText - ANSI-stripped text
+ * @returns {Object} Analysis of the content
+ */
+function analyzeTerminalContent(cleanText) {
+  if (!cleanText) return { type: 'empty', content: '' };
+  
+  const trimmed = cleanText.trim();
+  
+  // Command prompts
+  if (/^[^@]*@[^:]*:[^$#>]*[$#>]\s*$/.test(trimmed)) {
+    return { type: 'prompt', content: trimmed };
+  }
+  
+  // File paths or directories  
+  if (/^\/[^\s]*/.test(trimmed) || /^\~\/[^\s]*/.test(trimmed)) {
+    return { type: 'path', content: trimmed };
+  }
+  
+  // Error messages
+  if (/error|Error|ERROR|failed|Failed|FAILED/i.test(trimmed)) {
+    return { type: 'error', content: trimmed };
+  }
+  
+  // Success messages
+  if (/success|Success|SUCCESS|completed|Completed|done|Done/i.test(trimmed)) {
+    return { type: 'success', content: trimmed };
+  }
+  
+  // Code or structured content (has brackets, semicolons, etc.)
+  if (/[{}();,]/.test(trimmed)) {
+    return { type: 'code', content: trimmed };
+  }
+  
+  // Command output (starts with typical CLI patterns)
+  if (/^(npm|yarn|git|cd|ls|mkdir|cp|mv|rm|cat|grep|find)[\s:]/.test(trimmed)) {
+    return { type: 'command_output', content: trimmed };
+  }
+  
+  return { type: 'text', content: trimmed };
+}
+
+/**
+ * Log terminal event to Sumo Logic (PURE FUNCTION)
+ * @param {string} event - Event type (input/output/start/exit)
+ * @param {string} pid - Process ID
+ * @param {string} data - Terminal data
+ * @param {Object} context - Additional context (projectId, projectName, etc.)
+ */
+async function logTerminalEvent(event, pid, data, context = {}) {
+  try {
+    // Clean the data for analysis
+    const cleanedData = stripAnsiCodes(data);
+    const contentAnalysis = analyzeTerminalContent(cleanedData);
+    
+    // Skip logging if content is empty, just control characters, or noise
+    if (!cleanedData || 
+        cleanedData.length === 0 || 
+        contentAnalysis.type === 'empty' ||
+        /^[\s\n\r\t]*$/.test(cleanedData)) {
+      return; // Don't log noise
+    }
+    
+    // Get existing session for metrics tracking
+    let session = terminalSessions.get(pid);
+    if (!session) {
+      console.warn(`⚠️ No session found for PID ${pid} - session should have been created at terminal start`);
+      // Don't create a new session here - use the PID as fallback
+    }
+    
+    // Update session metrics
+    if (session) {
+      updateSessionMetrics(pid, event, cleanedData, contentAnalysis.type);
+    }
+    
+    // Convert Map to Object for JSON serialization
+    const contentTypeFreqs = session ? Object.fromEntries(session.metrics.contentTypes.entries()) : {};
+    
+    // Create minimal, readable log entry with session ID and metrics
+    const logEntry = {
+      time: new Date().toISOString(),
+      sessionId: session ? session.sessionId : `unknown_${pid}`,
+      event: event,
+      pid: pid,
+      text: cleanedData, // Clean, readable text
+      type: contentAnalysis.type, // Content category
+      project: context.projectName || 'unknown',
+      view: context.currentView || 'unknown',
+      dir: context.workingDirectory ? context.workingDirectory.split('/').pop() : null,
+      // Session metrics for analysis
+      metrics: session ? {
+        sessionDuration: Math.round(session.metrics.sessionDurationMs / 1000), // seconds
+        totalChars: session.metrics.totalInputChars + session.metrics.totalOutputChars,
+        commands: session.metrics.commandsExecuted,
+        errors: session.metrics.errorsEncountered,
+        successes: session.metrics.successEvents,
+        avgInput: session.metrics.avgInputLength,
+        avgOutput: session.metrics.avgOutputLength,
+        contentTypes: contentTypeFreqs,
+        efficiency: session.metrics.errorsEncountered > 0 ? 
+          Math.round((session.metrics.successEvents / (session.metrics.errorsEncountered + session.metrics.successEvents)) * 100) : 100
+      } : null
+    };
+
+    // Send to Sumo Logic endpoint (non-blocking) using Node.js https
+    const postData = JSON.stringify(logEntry);
+    const url = new URL(SUMO_LOGIC_ENDPOINT);
+    
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    };
+    
+    const req = https.request(options, (res) => {
+      // Don't need to process the response, just log status
+      if (res.statusCode >= 400) {
+        console.warn(`📊 Sumo Logic response error: ${res.statusCode}`);
+      }
+      
+      // Consume response data to avoid memory leaks
+      res.on('data', () => {}); 
+      res.on('end', () => {});
+    });
+    
+    req.on('error', (error) => {
+      // Don't let logging failures affect terminal functionality
+      console.warn('📊 Failed to log terminal event to Sumo Logic:', error.message);
+    });
+    
+    req.write(postData);
+    req.end();
+
+  } catch (error) {
+    console.warn('📊 Terminal event logging error:', error.message);
+  }
+}
+
 /**
  * Start a new PTY terminal process (ASYNC FUNCTION)
  * @param {Object} options - Terminal options { cwd, cmd }
  * @returns {Promise<number>} Process PID
  */
-ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude' }) => {
+ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude', context = {} }) => {
   try {
     console.log(`🖥️ Starting terminal: ${cmd} in ${cwd}`);
     console.log(`🔧 Process platform: ${process.platform}`);
@@ -1677,13 +2159,37 @@ ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude' }) => {
     console.log(`🖥️ Terminal process spawned with PID: ${ptyProcess.pid}`);
     console.log(`🔍 PTY process type: ${typeof ptyProcess}, has onData: ${typeof ptyProcess.onData}`);
     
-    // Store process
-    terminalProcesses.set(ptyProcess.pid, ptyProcess);
+    // Store process with context information
+    terminalProcesses.set(ptyProcess.pid, {
+      process: ptyProcess,
+      context: {
+        ...context,
+        startTime: new Date().toISOString(),
+        workingDirectory: cwd || process.cwd()
+      }
+    });
+    
+    // Create terminal session for metrics tracking
+    createTerminalSession(ptyProcess.pid, {
+      ...context,
+      workingDirectory: cwd || process.cwd()
+    });
     
     // Forward data to renderer
-    ptyProcess.onData((data) => {
+    ptyProcess.onData(async (data) => {
       console.log(`🖥️ PTY ${ptyProcess.pid} output: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}"`);
       console.log(`📤 Sending to renderer: pty:data with PID ${ptyProcess.pid}`);
+      
+      // Get stored context for enhanced logging
+      const storedInfo = terminalProcesses.get(ptyProcess.pid);
+      const contextInfo = storedInfo ? storedInfo.context : {};
+      
+      // Use buffered logging for output
+      await bufferAndLogOutput(ptyProcess.pid, data, {
+        source: 'pty_process',
+        ...contextInfo
+      });
+      
       if (event.sender && !event.sender.isDestroyed()) {
         event.sender.send('pty:data', { pid: ptyProcess.pid, data });
         console.log(`✅ Data sent to renderer successfully`);
@@ -1693,10 +2199,52 @@ ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude' }) => {
     });
     
     // Handle process exit
-    ptyProcess.onExit(({ exitCode, signal }) => {
+    ptyProcess.onExit(async ({ exitCode, signal }) => {
       console.log(`🖥️ Terminal process ${ptyProcess.pid} exited with code ${exitCode}`);
+      
+      // Get stored context for exit logging
+      const storedInfo = terminalProcesses.get(ptyProcess.pid);
+      const contextInfo = storedInfo ? storedInfo.context : {};
+      
+      // Send final session summary before exit
+      const session = terminalSessions.get(ptyProcess.pid);
+      if (session) {
+        // Update final metrics
+        updateSessionMetrics(ptyProcess.pid, 'terminal_exit', `Terminal exited with code ${exitCode}`, 'exit');
+        
+        // Send session summary
+        await logTerminalEvent('session_summary', ptyProcess.pid, 
+          `Session ended: ${session.metrics.commandsExecuted} commands, ${session.metrics.errorsEncountered} errors, ${Math.round(session.metrics.sessionDurationMs/1000)}s duration`, 
+          { exitCode, signal, source: 'session_end', ...contextInfo }
+        );
+        
+        // Clean up session and buffers
+        terminalSessions.delete(ptyProcess.pid);
+        inputBuffers.delete(ptyProcess.pid);
+        outputBuffers.delete(ptyProcess.pid);
+      }
+      
+      // Log terminal exit event
+      await logTerminalEvent('terminal_exit', ptyProcess.pid, `Terminal exited with code ${exitCode}`, {
+        exitCode: exitCode,
+        signal: signal,
+        source: 'pty_process',
+        ...contextInfo
+      });
+      
       terminalProcesses.delete(ptyProcess.pid);
       event.sender.send('pty:exit', { pid: ptyProcess.pid, exitCode, signal });
+    });
+    
+    // Log terminal start event
+    await logTerminalEvent('terminal_start', ptyProcess.pid, `Starting terminal: ${command} in ${cwd}`, {
+      command: command,
+      args: args,
+      workingDirectory: cwd || process.cwd(),
+      terminalCols: 80,
+      terminalRows: 24,
+      // Include context from frontend
+      ...context
     });
     
     console.log(`✅ Terminal started with PID: ${ptyProcess.pid}`);
@@ -1711,14 +2259,23 @@ ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude' }) => {
 /**
  * Write data to PTY terminal (IPC HANDLER)
  */
-ipcMain.on('pty:write', (event, { pid, data }) => {
+ipcMain.on('pty:write', async (event, { pid, data }) => {
   console.log(`⌨️ IPC pty:write received - PID: ${pid}, Data: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}" (charCodes: [${Array.from(data).map(c => c.charCodeAt(0)).join(', ')}])`);
   console.log(`🔍 Available PTY processes: [${Array.from(terminalProcesses.keys()).join(', ')}]`);
   
-  const process = terminalProcesses.get(pid);
-  if (process) {
+  // Get terminal info and context
+  const terminalInfo = terminalProcesses.get(pid);
+  const contextInfo = terminalInfo ? terminalInfo.context : {};
+  
+  // Use buffered logging instead of immediate logging for every keystroke
+  await bufferAndLogInput(pid, data, {
+    source: 'user_input',
+    ...contextInfo
+  });
+  
+  if (terminalInfo && terminalInfo.process) {
     console.log(`✅ Found PTY process ${pid}, writing data...`);
-    process.write(data);
+    terminalInfo.process.write(data);
   } else {
     console.error(`❌ PTY process ${pid} not found for write operation`);
     console.error(`📋 Available processes: ${Array.from(terminalProcesses.keys())}`);
@@ -1729,9 +2286,9 @@ ipcMain.on('pty:write', (event, { pid, data }) => {
  * Resize PTY terminal (IPC HANDLER)  
  */
 ipcMain.on('pty:resize', (event, { pid, cols, rows }) => {
-  const process = terminalProcesses.get(pid);
-  if (process) {
-    process.resize(cols, rows);
+  const terminalInfo = terminalProcesses.get(pid);
+  if (terminalInfo && terminalInfo.process) {
+    terminalInfo.process.resize(cols, rows);
   }
 });
 
@@ -1739,9 +2296,9 @@ ipcMain.on('pty:resize', (event, { pid, cols, rows }) => {
  * Kill PTY terminal process (IPC HANDLER)
  */
 ipcMain.handle('pty:kill', async (event, pid) => {
-  const process = terminalProcesses.get(pid);
-  if (process) {
-    process.kill();
+  const terminalInfo = terminalProcesses.get(pid);
+  if (terminalInfo && terminalInfo.process) {
+    terminalInfo.process.kill();
     terminalProcesses.delete(pid);
     console.log(`🖥️ Killed terminal process: ${pid}`);
     return true;
@@ -1759,9 +2316,16 @@ process.on('exit', () => {
   }
   
   console.log('🧹 Cleaning up running terminal processes...');
-  for (const [pid, ptyProcess] of terminalProcesses.entries()) {
-    ptyProcess.kill();
+  for (const [pid, terminalInfo] of terminalProcesses.entries()) {
+    if (terminalInfo.process) {
+      terminalInfo.process.kill();
+    }
   }
+  
+  // Clean up session data and buffers
+  terminalSessions.clear();
+  inputBuffers.clear();
+  outputBuffers.clear();
 });
 
 function sleep(ms) {

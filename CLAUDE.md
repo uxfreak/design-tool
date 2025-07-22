@@ -447,6 +447,7 @@ The embedded terminal provides a complete development environment within the Des
 - **Backend**: node-pty for real shell processes
 - **Communication**: Secure IPC between main and renderer processes
 - **Persistence**: DOM element reuse for session continuity
+- **Analytics**: Comprehensive event logging to Sumo Logic for UI abstraction analysis
 
 **Terminal Features**:
 - ✅ **Shell Access**: Full bash/PowerShell access in project directory
@@ -454,6 +455,71 @@ The embedded terminal provides a complete development environment within the Des
 - ✅ **Session Persistence**: Terminals survive tab switches and navigation
 - ✅ **Process Management**: Proper PTY lifecycle with cleanup
 - ✅ **Professional UI**: Terminal controls (clear, restart) and status indicators
+- ✅ **Context Awareness**: Terminal operations include project and application context
+- ✅ **Event Logging**: All input/output logged to Sumo Logic for future UI abstraction
+
+### **Terminal Event Logging System** 🆕
+**Purpose**: Capture comprehensive terminal interactions for future UI abstraction layer development
+
+**Logged Events**:
+- **terminal_start**: When terminal processes are initiated
+- **terminal_input**: All user keystrokes and commands
+- **terminal_output**: All process output and responses
+- **terminal_exit**: When terminal processes terminate
+
+**Enhanced Data Structure with Session Tracking & Metrics**:
+```javascript
+{
+  time: "2025-07-22T21:30:45.123Z",
+  sessionId: "session_1721686245123_abc123def456",
+  event: "terminal_input|terminal_output|terminal_start|terminal_exit|session_summary",
+  pid: 12345,
+  text: "npm install express", // Clean, readable text (ANSI stripped)
+  type: "command_output", // Content type classification
+  project: "my-react-app", // Project name
+  view: "project-viewer", // Current application view
+  dir: "my-react-app", // Working directory name
+  metrics: {
+    sessionDuration: 157, // Session duration in seconds
+    totalChars: 2847, // Total input + output characters
+    commands: 12, // Number of commands executed
+    errors: 2, // Number of error events detected
+    successes: 8, // Number of success events detected
+    avgInput: 15, // Average input length per event
+    avgOutput: 89, // Average output length per event
+    contentTypes: { // Frequency of different content types
+      "command_output": 45,
+      "text": 23,
+      "error": 2,
+      "success": 8,
+      "prompt": 12
+    },
+    efficiency: 80 // Success rate percentage (successes/(successes+errors)*100)
+  }
+}
+```
+
+**Session Summary Events**: Special events logged when terminals exit
+```javascript
+{
+  time: "2025-07-22T21:32:42.456Z",
+  sessionId: "session_1721686245123_abc123def456",
+  event: "session_summary",
+  text: "Session ended: 12 commands, 2 errors, 157s duration",
+  type: "exit",
+  metrics: { /* final session metrics */ }
+}
+```
+
+**Endpoint**: `https://stag-events.sumologic.net/receiver/v1/http/ZaVnC4dhaV3euHRJTAw1lSCmzI2cOP59Z01zbW_8-Ow9ffu3_xKXWR6cLv24CG4Sk1LtqoE6XA7kDitwQATJYzOAEPZLt3XREiH0aqKelMMOTTdpm3Feqw==`
+
+**Optimized Logging Strategy**:
+- **Input Buffering**: Keystrokes are buffered until complete commands (Enter key or 2-second pause), reducing noise by ~95%
+- **Output Batching**: Terminal output is debounced with 1-second delays, only logging meaningful chunks
+- **Smart Filtering**: Ignores control characters, empty content, and repetitive noise
+- **Memory Management**: Buffers auto-clear after inactivity and have size limits to prevent memory leaks
+
+**Use Case**: This structured, optimized data will be analyzed to build a UI layer abstraction that shows users only what they need to see, filtering out noise and presenting relevant information contextually. The buffering ensures we capture meaningful user interactions and terminal responses without overwhelming the system with individual keystroke events.
 
 ### **Terminal Data Flow**
 ```
