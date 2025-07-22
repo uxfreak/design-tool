@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #333;
+            background: #1f1f1f;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .logo::before {
+            content: '✨';
+            font-size: 16px;
+        }
+
+        .app-title {
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: -0.02em;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .view-toggle {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .view-btn {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .view-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .settings-btn {
+            background: #333;
+            border: none;
+            color: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+            margin-right: 0.5rem;
+        }
+
+        .settings-btn:hover {
+            background: #555;
+            transform: translateY(-1px);
+        }
+
+        .create-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+
+        .create-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .projects-container {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+        }
+
+        .empty-icon {
+            width: 80px;
+            height: 80px;
+            background: #2a2a2a;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            margin-bottom: 1.5rem;
+        }
+
+        .empty-title {
+            font-size: 1.5rem;
+            font-weight: 400;
+            margin-bottom: 0.5rem;
+        }
+
+        .empty-subtitle {
+            color: #888;
+            font-size: 1rem;
+            margin-bottom: 2rem;
+            max-width: 400px;
+            line-height: 1.5;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .projects-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .project-card {
+            background: #2a2a2a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .project-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .project-name {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .project-meta {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .project-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            border-radius: 12px;
+            color: #4caf50;
+            font-size: 0.8rem;
+        }
+
+        .project-status::before {
+            content: '●';
+            font-size: 0.6rem;
+        }
+
+        .version {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            font-size: 0.8rem;
+            opacity: 0.5;
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #2a2a2a;
+            border-radius: 16px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.3rem;
+            font-weight: 500;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary {
+            background: #444;
+            color: white;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        /* Progress Indicator Styles */
+        .progress-container {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: #1f1f1f;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .progress-step {
+            font-size: 0.9rem;
+            color: #ccc;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-percentage {
+            font-size: 0.8rem;
+            color: #888;
+            text-align: right;
+        }
+
+        /* Project Viewer Modal Styles */
+        .project-viewer-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            z-index: 2000;
+        }
+
+        .project-viewer-modal.show {
+            display: block;
+        }
+
+        .project-viewer-modal-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .project-viewer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            background: #1f1f1f;
+            border-bottom: 1px solid #333;
+            gap: 2rem;
+        }
+
+        .project-viewer-title-section {
+            flex: 0 0 auto;
+        }
+
+        .project-viewer-title {
+            font-size: 1.3rem;
+            font-weight: 500;
+            color: white;
+            margin: 0;
+        }
+
+        .project-viewer-tabs {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #444;
+        }
+
+        .project-tab {
+            background: none;
+            border: none;
+            color: #ccc;
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-right: 1px solid #444;
+            white-space: nowrap;
+        }
+
+        .project-tab:last-child {
+            border-right: none;
+        }
+
+        .project-tab:hover {
+            color: white;
+            background: #333;
+        }
+
+        .project-tab.active {
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .close-project-viewer-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.8rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+            flex: 0 0 auto;
+        }
+
+        .close-project-viewer-btn:hover {
+            background: #333;
+            color: white;
+        }
+
+        .project-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .project-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: white;
+        }
+
+        /* Workflows Styles */
+        .workflows-container {
+            flex: 1;
+            padding: 2rem;
+            background: #1a1a1a;
+            overflow-y: auto;
+        }
+
+        .workflows-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #333;
+        }
+
+        .workflows-title-section h2 {
+            color: white;
+            font-size: 2rem;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .workflows-title-section p {
+            color: #888;
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .create-workflow-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+
+        .create-workflow-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .workflows-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .workflow-card {
+            background: #2a2a2a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid #333;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .workflow-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .workflow-card.empty-workflow {
+            border: 2px dashed #444;
+            text-align: center;
+            padding: 3rem 1.5rem;
+        }
+
+        .empty-workflow-content .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .empty-workflow-content h3 {
+            color: white;
+            font-size: 1.3rem;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .empty-workflow-content p {
+            color: #888;
+            margin: 0;
+        }
+
+        .workflow-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: #1f1f1f;
+            border-radius: 8px;
+        }
+
+        .workflow-step {
+            background: #667eea;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .workflow-arrow {
+            color: #888;
+            font-weight: bold;
+        }
+
+        .workflow-card h3 {
+            color: white;
+            font-size: 1.2rem;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .workflow-card p {
+            color: #888;
+            margin: 0 0 1rem 0;
+            line-height: 1.5;
+        }
+
+        .workflow-meta {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .component-count, .step-count {
+            background: #333;
+            color: #ccc;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+
+        .default-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .workflow-card.default-workflow {
+            border: 2px solid #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        }
+
+        /* Workflow Preview Modal Styles */
+        .workflow-preview-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            backdrop-filter: blur(5px);
+        }
+
+        .workflow-preview-modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .workflow-preview-modal-content {
+            background: #1a1a1a;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 1000px;
+            max-height: 90vh;
+            overflow: hidden;
+            border: 1px solid #333;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .workflow-preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #333;
+            background: #2a2a2a;
+        }
+
+        .workflow-preview-title {
+            color: white;
+            font-size: 1.3rem;
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .close-workflow-preview-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.8rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .close-workflow-preview-btn:hover {
+            background: #333;
+            color: white;
+        }
+
+        .workflow-preview-content {
+            padding: 2rem;
+            overflow-y: auto;
+            max-height: calc(90vh - 100px);
+        }
+
+        .workflow-preview-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .workflow-step-info {
+            background: #2a2a2a;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .step-header h4 {
+            color: white;
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .workflow-step-info p {
+            color: #ccc;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        .app-preview-frame {
+            background: #f0f0f0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .browser-chrome {
+            background: #e0e0e0;
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .browser-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .browser-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .browser-dot.red { background: #ff5f57; }
+        .browser-dot.yellow { background: #ffbd2e; }
+        .browser-dot.green { background: #28ca42; }
+
+        .browser-address {
+            color: #666;
+            font-size: 0.9rem;
+            background: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .app-preview-content {
+            background: white;
+        }
+
+        .workflow-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #333;
+            margin-top: 1rem;
+        }
+
+        .btn-primary, .btn-secondary {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #333;
+            color: #ccc;
+            border: 1px solid #444;
+        }
+
+        .btn-secondary:hover {
+            background: #444;
+            color: white;
+        }
+
+        /* Generic workflow preview styles */
+        .generic-workflow-preview {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .workflow-info {
+            background: #2a2a2a;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .workflow-info h4 {
+            color: white;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .workflow-info p {
+            color: #ccc;
+            margin: 0 0 1rem 0;
+        }
+
+        .workflow-stats {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .stat {
+            background: #333;
+            color: #ccc;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+
+        .workflow-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .workflow-step-card {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: #2a2a2a;
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .step-number {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .step-details h4 {
+            color: white;
+            margin: 0 0 0.25rem 0;
+            font-size: 1rem;
+        }
+
+        .step-details p {
+            color: #ccc;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+
+        /* Live Preview Loading States */
+        .workflow-loading, .server-loading, .server-error, .server-stopped {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .server-loading p, .server-error h3, .server-stopped p {
+            color: #333;
+            margin: 0.5rem 0;
+        }
+
+        .server-loading small {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .server-error h3 {
+            color: #d32f2f;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .server-error p {
+            color: #666;
+            margin-bottom: 1rem;
+        }
+
+        .workflow-loading .loading-spinner {
+            border-top-color: #667eea;
+        }
+
+        .workflow-loading p {
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        /* Component Library Loading Styles */
+        .component-library-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            background: #1a1a1a;
+            padding: 3rem;
+            text-align: center;
+        }
+
+        .component-library-loading .loading-spinner {
+            border-color: #333;
+            border-top-color: #667eea;
+            margin-bottom: 1.5rem;
+        }
+
+        .component-library-loading p {
+            color: #ffffff;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .component-library-loading small {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        /* Settings Modal Styles */
+        .settings-modal-content {
+            max-width: 700px;
+            width: 95%;
+        }
+
+        .settings-tabs {
+            display: flex;
+            border-bottom: 1px solid #333;
+            margin-bottom: 2rem;
+            gap: 0;
+        }
+
+        .settings-tab {
+            background: none;
+            border: none;
+            color: #888;
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+            white-space: nowrap;
+        }
+
+        .settings-tab:hover {
+            color: white;
+            background: #333;
+        }
+
+        .settings-tab.active {
+            color: white;
+            border-bottom-color: #667eea;
+            background: #333;
+        }
+
+        .settings-content {
+            min-height: 300px;
+        }
+
+        .settings-panel {
+            display: none;
+        }
+
+        .settings-panel.active {
+            display: block;
+        }
+
+        .directory-picker {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .directory-input {
+            flex: 1;
+        }
+
+        .directory-picker-btn {
+            flex-shrink: 0;
+            padding: 0.75rem 1rem;
+        }
+
+        .form-help {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .port-range {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .port-input {
+            width: 100px;
+        }
+
+        .port-separator {
+            color: #888;
+            font-weight: 500;
+        }
+
+        .form-checkbox {
+            width: auto;
+            margin-right: 0.75rem;
+            accent-color: #667eea;
+        }
+
+        .form-label:has(.form-checkbox) {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            margin-bottom: 0.25rem;
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-left">
+                <div class="logo"></div>
+                <h1 class="app-title">Design Tool</h1>
+            </div>
+            <div class="header-actions">
+                <div class="view-toggle">
+                    <button class="view-btn active" data-view="grid">Grid</button>
+                    <button class="view-btn" data-view="list">List</button>
+                </div>
+                <button class="settings-btn" onclick="openSettingsModal()" title="Settings">⚙️</button>
+                <button class="create-btn" onclick="openCreateProjectModal()">New Project</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="projects-container">
+                <div id="empty-state" class="empty-state">
+                    <div class="empty-icon">📁</div>
+                    <h2 class="empty-title">No projects yet</h2>
+                    <p class="empty-subtitle">Create your first React project with Storybook to get started building amazing user interfaces.</p>
+                    <button class="create-btn" onclick="openCreateProjectModal()">Create Your First Project</button>
+                </div>
+                
+                <div id="projects-display" class="projects-grid" style="display: none;">
+                    <!-- Projects will be dynamically inserted here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div id="create-project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Create New Project</h3>
+                <button class="close-btn" onclick="closeCreateProjectModal()">&times;</button>
+            </div>
+            <form id="create-project-form">
+                <div class="form-group">
+                    <label for="project-name" class="form-label">Project Name</label>
+                    <input type="text" id="project-name" name="projectName" class="form-input" 
+                           placeholder="Enter project name" required>
+                </div>
+                <div class="form-group">
+                    <label for="project-template" class="form-label">Template</label>
+                    <select id="project-template" name="projectTemplate" class="form-input" required>
+                        <option value="">Select a template</option>
+                        <option value="react-basic">React Basic</option>
+                        <option value="react-typescript">React + TypeScript</option>
+                        <option value="react-storybook">React + Storybook</option>
+                        <option value="react-storybook-tailwind">React + Storybook + Tailwind</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateProjectModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content settings-modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Settings</h3>
+                <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
+            </div>
+            
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="general" onclick="switchSettingsTab('general')">
+                    📁 General
+                </button>
+                <button class="settings-tab" data-tab="development" onclick="switchSettingsTab('development')">
+                    ⚡ Development
+                </button>
+                <button class="settings-tab" data-tab="advanced" onclick="switchSettingsTab('advanced')">
+                    🔧 Advanced
+                </button>
+            </div>
+            
+            <div class="settings-content">
+                <!-- General Tab -->
+                <div id="general-settings" class="settings-panel active">
+                    <div class="form-group">
+                        <label for="projects-directory" class="form-label">Projects Directory</label>
+                        <div class="directory-picker">
+                            <input type="text" id="projects-directory" name="projectsDirectory" class="form-input directory-input" 
+                                   placeholder="Choose where to create projects..." readonly>
+                            <button type="button" class="btn btn-secondary directory-picker-btn" onclick="chooseProjectsDirectory()">
+                                Browse...
+                            </button>
+                        </div>
+                        <div class="form-help">All new projects will be created in this directory</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="default-template" class="form-label">Default Project Template</label>
+                        <select id="default-template" name="defaultTemplate" class="form-input">
+                            <option value="react-basic">React Basic</option>
+                            <option value="react-typescript">React + TypeScript</option>
+                            <option value="react-storybook">React + Storybook</option>
+                            <option value="react-storybook-tailwind">React + Storybook + Tailwind</option>
+                        </select>
+                        <div class="form-help">New projects will use this template by default</div>
+                    </div>
+                </div>
+                
+                <!-- Development Tab -->
+                <div id="development-settings" class="settings-panel">
+                    <div class="form-group">
+                        <label for="dev-port-start" class="form-label">Development Server Port Range</label>
+                        <div class="port-range">
+                            <input type="number" id="dev-port-start" name="devPortStart" class="form-input port-input" 
+                                   value="3000" min="1000" max="65535">
+                            <span class="port-separator">to</span>
+                            <input type="number" id="dev-port-end" name="devPortEnd" class="form-input port-input" 
+                                   value="3999" min="1000" max="65535">
+                        </div>
+                        <div class="form-help">Development servers will use ports in this range</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="auto-open-browser" name="autoOpenBrowser" class="form-checkbox">
+                            Auto-open browser on project start
+                        </label>
+                        <div class="form-help">Automatically open browser when starting development servers</div>
+                    </div>
+                </div>
+                
+                <!-- Advanced Tab -->
+                <div id="advanced-settings" class="settings-panel">
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="enable-dev-tools" name="enableDevTools" class="form-checkbox" checked>
+                            Enable Developer Tools
+                        </label>
+                        <div class="form-help">Show Chrome DevTools in development mode</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="max-recent-projects" class="form-label">Maximum Recent Projects</label>
+                        <input type="number" id="max-recent-projects" name="maxRecentProjects" class="form-input" 
+                               value="20" min="5" max="100">
+                        <div class="form-help">Maximum number of projects to display in the main view</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-actions">
+                <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">Reset to Defaults</button>
+                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="version">v0.1.0 - Phase 4 ✅</div>
+    
+    <script src="dev-suppress-warnings.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
