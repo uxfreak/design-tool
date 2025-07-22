@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Design Tool</title>
+    <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
+    <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
     <style>
         * {
             margin: 0;
@@ -1094,6 +1097,91 @@
             margin-top: 2rem;
             padding-top: 1.5rem;
             border-top: 1px solid #333;
+        }
+        
+        /* Terminal Styles */
+        .terminal-container {
+            flex: 1;
+            padding: 0;
+            background: #1a1a1a;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .terminal-header {
+            background: #2a2a2a;
+            border-bottom: 1px solid #333;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .terminal-title {
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .terminal-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .terminal-btn {
+            background: #333;
+            border: none;
+            color: #ccc;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        
+        .terminal-btn:hover {
+            background: #444;
+            color: white;
+        }
+        
+        .terminal-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .terminal-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #888;
+            font-size: 0.9rem;
+        }
+        
+        .terminal-loading .loading-spinner {
+            border-color: #333;
+            border-top-color: #667eea;
+            margin-bottom: 1rem;
+        }
+        
+        /* Override xterm.js styles for dark theme */
+        .xterm {
+            background-color: #1a1a1a !important;
+            color: #ffffff !important;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace !important;
+        }
+        
+        .xterm .xterm-viewport {
+            background-color: #1a1a1a !important;
+        }
+        
+        .xterm .xterm-screen {
+            background-color: #1a1a1a !important;
         }
     </style>
 </head>

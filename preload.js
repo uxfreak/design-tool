@@ -32,6 +32,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Component discovery operations
   discoverComponents: (projectId) => ipcRenderer.invoke('project:discover-components', projectId),
   
+  // Terminal PTY operations
+  ptyStart: (options) => ipcRenderer.invoke('pty:start', options),
+  ptyWrite: (pid, data) => ipcRenderer.send('pty:write', { pid, data }),
+  ptyResize: (pid, cols, rows) => ipcRenderer.send('pty:resize', { pid, cols, rows }),
+  ptyKill: (pid) => ipcRenderer.invoke('pty:kill', pid),
+  onPtyData: (callback) => {
+    const wrappedCallback = (event, data) => {
+      console.log('🔍 Preload received pty:data event:', data);
+      callback(data);
+    };
+    ipcRenderer.on('pty:data', wrappedCallback);
+    return () => ipcRenderer.removeListener('pty:data', wrappedCallback);
+  },
+  onPtyExit: (callback) => {
+    const wrappedCallback = (event, data) => {
+      console.log('🔍 Preload received pty:exit event:', data);
+      callback(data);
+    };
+    ipcRenderer.on('pty:exit', wrappedCallback);  
+    return () => ipcRenderer.removeListener('pty:exit', wrappedCallback);
+  },
+  
   // Event listeners for progress updates
   onProjectProgress: (callback) => {
     ipcRenderer.on('project:progress', callback);

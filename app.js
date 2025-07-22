@@ -563,7 +563,22 @@ function openProject(projectId) {
     }
     
     console.log('Opening project viewer:', project.name);
-    openProjectViewerModal(projectId);
+    
+    // Remove existing modal if present
+    const existingModal = document.getElementById('project-viewer');
+    if (existingModal) {
+        document.body.removeChild(existingModal);
+    }
+    
+    // Create and show new modal
+    const modal = createProjectViewerModal(projectId);
+    document.body.appendChild(modal);
+    
+    // Show modal with fade-in effect
+    setTimeout(() => modal.classList.add('show'), 10);
+    
+    // Initialize with component library tab
+    switchProjectTab('component-library');
 }
 
 function updateProjectProgress(projectId, plan) {
@@ -646,6 +661,8 @@ function switchProjectTab(tabId) {
         showComponentLibraryContent(contentArea, project);
     } else if (tabId === 'workflows') {
         showWorkflowsContent(contentArea, project);
+    } else if (tabId === 'terminal') {
+        showTerminalContent(contentArea, project);
     }
 }
 
@@ -915,10 +932,11 @@ function generateWorkflowPreview(workflow) {
         .join('');
 }
 
-function createProjectViewerModal() {
+function createProjectViewerModal(projectId) {
     const modal = document.createElement('div');
     modal.id = 'project-viewer';
     modal.className = 'project-viewer-modal';
+    modal.dataset.projectId = projectId;
     modal.innerHTML = `
         <div class="project-viewer-modal-content">
             <div class="project-viewer-header">
@@ -931,6 +949,9 @@ function createProjectViewerModal() {
                     </button>
                     <button class="project-tab" data-tab="workflows" onclick="switchProjectTab('workflows')">
                         ⚡ Workflows
+                    </button>
+                    <button class="project-tab" data-tab="terminal" onclick="switchProjectTab('terminal')">
+                        💻 Claude Terminal
                     </button>
                 </div>
                 <button class="close-project-viewer-btn" onclick="closeProjectViewer()">&times;</button>
@@ -952,6 +973,10 @@ function closeProjectViewer() {
         if (iframe) {
             iframe.srcdoc = '';
         }
+        
+        // NOTE: We intentionally DO NOT cleanup terminals here
+        // so they persist between project viewer sessions
+        console.log('📝 Project viewer closed, terminals preserved for later use');
     }
 }
 
@@ -1506,6 +1531,396 @@ async function resetToDefaults() {
         alert('Failed to reset settings: ' + error.message);
     }
 }
+
+// =====================================================
+// TERMINAL INTEGRATION (CLAUDE CODE + XTERM.JS)
+// =====================================================
+
+// Terminal state management
+let activeTerminals = new Map(); // Map of project IDs to terminal instances
+
+/**
+ * Show terminal content in project viewer (ASYNC FUNCTION)
+ * @param {Element} contentArea - Content area element
+ * @param {Object} project - Project object
+ */
+async function showTerminalContent(contentArea, project) {
+    // Check if terminal already exists for this project
+    const existingTerminal = activeTerminals.get(project.id);
+    
+    if (existingTerminal && existingTerminal.domElement) {
+        console.log(`♻️ Reusing existing terminal DOM for project ${project.name}`);
+        
+        // Simply move the existing DOM element (preserves terminal state completely)
+        contentArea.innerHTML = '';
+        contentArea.appendChild(existingTerminal.domElement);
+        
+        // Refit terminal if addon is available
+        if (existingTerminal.fitAddonInstance) {
+            setTimeout(() => {
+                existingTerminal.fitAddonInstance.fit();
+            }, 100);
+        }
+        
+        // Refocus terminal
+        if (existingTerminal.terminal) {
+            existingTerminal.terminal.focus();
+        }
+        
+        console.log(`✅ Terminal DOM reused for project ${project.name}`);
+    } else if (existingTerminal) {
+        console.log(`♻️ Reattaching terminal to new DOM for project ${project.name}`);
+        
+        // Create new DOM structure but reuse terminal instance
+        const terminalContainer = document.createElement('div');
+        terminalContainer.className = 'terminal-container';
+        terminalContainer.innerHTML = `
+            <div class="terminal-header">
+                <div class="terminal-title">
+                    <span>💻</span>
+                    <span>Claude Terminal - ${project.name}</span>
+                </div>
+                <div class="terminal-controls">
+                    <button class="terminal-btn" onclick="clearTerminal('${project.id}')">Clear</button>
+                    <button class="terminal-btn" onclick="restartTerminal('${project.id}')">Restart</button>
+                </div>
+            </div>
+            <div class="terminal-content" id="terminal-${project.id}">
+                <!-- Terminal will be reattached here -->
+            </div>
+        `;
+        
+        contentArea.innerHTML = '';
+        contentArea.appendChild(terminalContainer);
+        
+        // Store the DOM element for future reuse
+        existingTerminal.domElement = terminalContainer;
+        
+        // Reattach terminal to new DOM element
+        const terminalElement = document.getElementById(`terminal-${project.id}`);
+        if (terminalElement && existingTerminal.terminal) {
+            existingTerminal.terminal.open(terminalElement);
+            
+            // Refit terminal if addon is available
+            if (existingTerminal.fitAddonInstance) {
+                setTimeout(() => {
+                    existingTerminal.fitAddonInstance.fit();
+                }, 100);
+            }
+            
+            // Refocus terminal
+            existingTerminal.terminal.focus();
+            console.log(`✅ Terminal reattached for project ${project.name}`);
+        }
+    } else {
+        console.log(`🆕 Creating new terminal for project ${project.name}`);
+        
+        // Show terminal container with loading state for new terminal
+        contentArea.innerHTML = `
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-title">
+                        <span>💻</span>
+                        <span>Claude Terminal - ${project.name}</span>
+                    </div>
+                    <div class="terminal-controls">
+                        <button class="terminal-btn" onclick="clearTerminal('${project.id}')">Clear</button>
+                        <button class="terminal-btn" onclick="restartTerminal('${project.id}')">Restart</button>
+                    </div>
+                </div>
+                <div class="terminal-content" id="terminal-${project.id}">
+                    <div class="terminal-loading">
+                        <div class="loading-spinner"></div>
+                        <p>Starting Claude Terminal...</p>
+                        <small>Initializing Claude Code in ${project.name}</small>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Initialize new terminal after a short delay to ensure DOM is ready
+        setTimeout(() => initializeTerminal(project), 100);
+    }
+}
+
+/**
+ * Initialize xterm.js terminal with Claude Code (ASYNC FUNCTION)
+ * @param {Object} project - Project object
+ */
+async function initializeTerminal(project) {
+    try {
+        // Use globally available xterm objects
+        if (!window.Terminal) {
+            throw new Error('xterm Terminal class not found in global scope');
+        }
+        
+        const Terminal = window.Terminal;
+        let fitAddonInstance = null;
+        
+        // Try to create FitAddon if available
+        if (window.FitAddon) {
+            try {
+                // Check if FitAddon is a constructor or a factory
+                
+                if (typeof window.FitAddon === 'function') {
+                    fitAddonInstance = new window.FitAddon();
+                } else if (typeof window.FitAddon === 'object' && window.FitAddon.FitAddon) {
+                    fitAddonInstance = new window.FitAddon.FitAddon();
+                } else {
+                    console.warn('FitAddon structure not recognized:', window.FitAddon);
+                }
+            } catch (error) {
+                console.warn('Could not create FitAddon:', error);
+            }
+        } else {
+            console.warn('FitAddon not available globally');
+        }
+        
+        // Create terminal instance
+        const terminal = new Terminal({
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace",
+            fontSize: 14,
+            lineHeight: 1.2,
+            theme: {
+                background: '#1a1a1a',
+                foreground: '#ffffff',
+                cursor: '#667eea',
+                black: '#1a1a1a',
+                red: '#ff6b6b',
+                green: '#51cf66',
+                yellow: '#ffd93d',
+                blue: '#667eea',
+                magenta: '#a78bfa',
+                cyan: '#22d3ee',
+                white: '#ffffff',
+                brightBlack: '#333333',
+                brightRed: '#ff8787',
+                brightGreen: '#69db7c',
+                brightYellow: '#ffe066',
+                brightBlue: '#7c3aed',
+                brightMagenta: '#b794f6',
+                brightCyan: '#67e8f9',
+                brightWhite: '#ffffff'
+            },
+            cursorBlink: true,
+            cursorStyle: 'block',
+            scrollback: 1000,
+            tabStopWidth: 4
+        });
+        
+        // Load fit addon if available
+        if (fitAddonInstance) {
+            terminal.loadAddon(fitAddonInstance);
+        }
+        
+        // Get terminal container and open terminal
+        const terminalElement = document.getElementById(`terminal-${project.id}`);
+        if (!terminalElement) {
+            console.error('Terminal element not found');
+            return;
+        }
+        
+        // Clear loading state and open terminal
+        terminalElement.innerHTML = '';
+        terminal.open(terminalElement);
+        
+        // Focus the terminal to receive keyboard input
+        terminal.focus();
+        console.log('🎯 Terminal focused and ready for input');
+        
+        // Set up data handlers BEFORE starting PTY process
+        let pid = null;
+        
+        // Test if the IPC listener is working at all
+        console.log('🔧 Testing IPC listener setup...');
+        console.log('onPtyData method available:', typeof window.electronAPI.onPtyData);
+        
+        const cleanupData = window.electronAPI.onPtyData((eventData) => {
+            console.log('🎯 RECEIVED IPC pty:data event:', eventData);
+            const { pid: dataPid, data } = eventData;
+            
+            if (dataPid === pid && terminal) {
+                console.log(`📥 PTY->Terminal: PID ${dataPid}, Data: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}"`);
+                terminal.write(data);
+            } else {
+                console.log(`⚠️ Ignoring data: dataPid=${dataPid}, expectedPid=${pid}, hasTerminal=${!!terminal}`);
+            }
+        });
+        
+        const cleanupExit = window.electronAPI.onPtyExit(({ pid: exitPid }) => {
+            if (exitPid === pid) {
+                terminal.write('\r\n\r\n[Process exited]\r\n');
+                cleanupData();
+                cleanupExit();
+                activeTerminals.delete(project.id);
+            }
+        });
+        
+        // Handle terminal input (send keystrokes to PTY)
+        terminal.onData((data) => {
+            if (pid) {
+                console.log(`📤 Terminal->PTY: PID ${pid}, Data: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}" (charCodes: [${Array.from(data).map(c => c.charCodeAt(0)).join(', ')}])`);
+                try {
+                    window.electronAPI.ptyWrite(pid, data);
+                    console.log('✅ IPC ptyWrite call successful');
+                    
+                    // Also test if the IPC method exists
+                    if (!window.electronAPI.ptyWrite) {
+                        console.error('❌ window.electronAPI.ptyWrite is not defined!');
+                    }
+                } catch (error) {
+                    console.error('❌ IPC ptyWrite error:', error);
+                    console.error('❌ Available electronAPI methods:', Object.keys(window.electronAPI));
+                }
+            } else {
+                console.warn('⚠️ Terminal input received but no PTY PID available');
+            }
+        });
+        
+        // Fit terminal to container if addon is available
+        if (fitAddonInstance) {
+            fitAddonInstance.fit();
+        }
+        
+        // NOW start PTY process with shell (which will show prompt and allow claude command)
+        console.log('Starting PTY process in:', project.path);
+        pid = await window.electronAPI.ptyStart({
+            cwd: project.path,
+            cmd: 'shell' // This will start a shell instead of trying to launch claude directly
+        });
+        
+        // Store terminal instance with DOM element for persistence
+        const terminalContainer = terminalElement.closest('.terminal-container');
+        activeTerminals.set(project.id, {
+            terminal,
+            fitAddonInstance,
+            pid,
+            project,
+            domElement: terminalContainer // Store the container for reuse
+        });
+        
+        // Handle window resize
+        const resizeObserver = new ResizeObserver(() => {
+            if (fitAddonInstance) {
+                fitAddonInstance.fit();
+                window.electronAPI.ptyResize(pid, terminal.cols, terminal.rows);
+            }
+        });
+        resizeObserver.observe(terminalElement);
+        
+        // Handle tab visibility for proper resize
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && fitAddonInstance) {
+                setTimeout(() => {
+                    fitAddonInstance.fit();
+                    window.electronAPI.ptyResize(pid, terminal.cols, terminal.rows);
+                }, 100);
+            }
+        });
+        
+        console.log(`✅ Terminal initialized for project ${project.name} with PID ${pid}`);
+        
+    } catch (error) {
+        console.error('Failed to initialize terminal:', error);
+        const terminalElement = document.getElementById(`terminal-${project.id}`);
+        if (terminalElement) {
+            terminalElement.innerHTML = `
+                <div style="padding: 2rem; text-align: center; color: #ff6b6b;">
+                    <h3>Terminal Failed to Start</h3>
+                    <p>Error: ${error.message}</p>
+                    <button class="btn-primary" onclick="showTerminalContent(document.querySelector('.project-content'), ${JSON.stringify(project).replace(/"/g, '&quot;')})">
+                        Retry
+                    </button>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * Clear terminal output (UTILITY FUNCTION)
+ * @param {string} projectId - Project ID
+ */
+function clearTerminal(projectId) {
+    const terminalInfo = activeTerminals.get(projectId);
+    if (terminalInfo) {
+        terminalInfo.terminal.clear();
+    }
+}
+
+/**
+ * Restart terminal process (ASYNC FUNCTION)
+ * @param {string} projectId - Project ID  
+ */
+async function restartTerminal(projectId) {
+    const terminalInfo = activeTerminals.get(projectId);
+    if (terminalInfo) {
+        // Kill existing process
+        await window.electronAPI.ptyKill(terminalInfo.pid);
+        
+        // Clear terminal
+        terminalInfo.terminal.clear();
+        terminalInfo.terminal.write('Restarting Claude Terminal...\r\n');
+        
+        // Start new process
+        try {
+            const newPid = await window.electronAPI.ptyStart({
+                cwd: terminalInfo.project.path,
+                cmd: 'claude'
+            });
+            
+            // Update stored PID
+            terminalInfo.pid = newPid;
+            
+            // Set up data handlers for new process
+            const cleanupData = window.electronAPI.onPtyData(({ pid, data }) => {
+                if (pid === newPid) {
+                    terminalInfo.terminal.write(data);
+                }
+            });
+            
+            const cleanupExit = window.electronAPI.onPtyExit(({ pid }) => {
+                if (pid === newPid) {
+                    terminalInfo.terminal.write('\r\n\r\n[Process exited]\r\n');
+                    cleanupData();
+                    cleanupExit();
+                }
+            });
+            
+            // Handle input
+            terminalInfo.terminal.onData((data) => {
+                window.electronAPI.ptyWrite(newPid, data);
+            });
+            
+        } catch (error) {
+            terminalInfo.terminal.write(`\r\nFailed to restart: ${error.message}\r\n`);
+        }
+    }
+}
+
+/**
+ * Cleanup terminal when project viewer closes (CLEANUP FUNCTION)
+ */
+function cleanupTerminals() {
+    for (const [projectId, terminalInfo] of activeTerminals.entries()) {
+        if (terminalInfo.pid) {
+            window.electronAPI.ptyKill(terminalInfo.pid);
+        }
+        if (terminalInfo.terminal) {
+            terminalInfo.terminal.dispose();
+        }
+    }
+    activeTerminals.clear();
+}
+
+// Cleanup terminals when project viewer is closed
+const originalCloseProjectViewer = window.closeProjectViewer;
+window.closeProjectViewer = function() {
+    cleanupTerminals();
+    if (originalCloseProjectViewer) {
+        originalCloseProjectViewer();
+    }
+};
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', initializeApp);

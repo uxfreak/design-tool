@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { spawn } = require('child_process');
 const os = require('os');
+const pty = require('node-pty');
 const Store = require('electron-store');
 
 // Application state
@@ -15,6 +16,7 @@ let mainWindow = null;
 let activeProcesses = new Map();
 let projectServers = new Map(); // Track running React dev servers by project ID
 let usedPorts = new Set([3000, 3001]); // Reserve common dev ports
+let terminalProcesses = new Map(); // Track running PTY terminal processes by PID
 
 // Settings store
 const store = new Store({
@@ -1630,13 +1632,135 @@ ipcMain.handle('project:discover-components', async (event, projectId) => {
   }
 });
 
-// Clean up all running servers on app exit
+// =====================================================
+// TERMINAL PTY MANAGEMENT (CLAUDE CODE INTEGRATION)
+// =====================================================
+
+/**
+ * Start a new PTY terminal process (ASYNC FUNCTION)
+ * @param {Object} options - Terminal options { cwd, cmd }
+ * @returns {Promise<number>} Process PID
+ */
+ipcMain.handle('pty:start', async (event, { cwd, cmd = 'claude' }) => {
+  try {
+    console.log(`🖥️ Starting terminal: ${cmd} in ${cwd}`);
+    console.log(`🔧 Process platform: ${process.platform}`);
+    
+    // Determine shell based on OS
+    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    
+    let command, args;
+    if (cmd === 'claude') {
+      command = 'claude';
+      args = [];
+    } else if (cmd === 'shell') {
+      command = shell;
+      args = [];
+    } else {
+      command = shell;
+      args = [];
+    }
+    
+    console.log(`🚀 Attempting to spawn: ${command} with args: [${args.join(', ')}]`);
+    console.log(`📁 Working directory: ${cwd || process.cwd()}`);
+    
+    // Spawn PTY process
+    const ptyProcess = pty.spawn(command, args, {
+      name: 'xterm-256color',
+      cwd: cwd || process.cwd(),
+      env: { ...process.env },
+      cols: 80,
+      rows: 24,
+      useConpty: false // Better Windows compatibility
+    });
+    
+    console.log(`🖥️ Terminal process spawned with PID: ${ptyProcess.pid}`);
+    console.log(`🔍 PTY process type: ${typeof ptyProcess}, has onData: ${typeof ptyProcess.onData}`);
+    
+    // Store process
+    terminalProcesses.set(ptyProcess.pid, ptyProcess);
+    
+    // Forward data to renderer
+    ptyProcess.onData((data) => {
+      console.log(`🖥️ PTY ${ptyProcess.pid} output: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}"`);
+      console.log(`📤 Sending to renderer: pty:data with PID ${ptyProcess.pid}`);
+      if (event.sender && !event.sender.isDestroyed()) {
+        event.sender.send('pty:data', { pid: ptyProcess.pid, data });
+        console.log(`✅ Data sent to renderer successfully`);
+      } else {
+        console.error(`❌ Cannot send data - event.sender is destroyed or invalid`);
+      }
+    });
+    
+    // Handle process exit
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      console.log(`🖥️ Terminal process ${ptyProcess.pid} exited with code ${exitCode}`);
+      terminalProcesses.delete(ptyProcess.pid);
+      event.sender.send('pty:exit', { pid: ptyProcess.pid, exitCode, signal });
+    });
+    
+    console.log(`✅ Terminal started with PID: ${ptyProcess.pid}`);
+    return ptyProcess.pid;
+    
+  } catch (error) {
+    console.error('Failed to start terminal:', error);
+    throw error;
+  }
+});
+
+/**
+ * Write data to PTY terminal (IPC HANDLER)
+ */
+ipcMain.on('pty:write', (event, { pid, data }) => {
+  console.log(`⌨️ IPC pty:write received - PID: ${pid}, Data: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}" (charCodes: [${Array.from(data).map(c => c.charCodeAt(0)).join(', ')}])`);
+  console.log(`🔍 Available PTY processes: [${Array.from(terminalProcesses.keys()).join(', ')}]`);
+  
+  const process = terminalProcesses.get(pid);
+  if (process) {
+    console.log(`✅ Found PTY process ${pid}, writing data...`);
+    process.write(data);
+  } else {
+    console.error(`❌ PTY process ${pid} not found for write operation`);
+    console.error(`📋 Available processes: ${Array.from(terminalProcesses.keys())}`);
+  }
+});
+
+/**
+ * Resize PTY terminal (IPC HANDLER)  
+ */
+ipcMain.on('pty:resize', (event, { pid, cols, rows }) => {
+  const process = terminalProcesses.get(pid);
+  if (process) {
+    process.resize(cols, rows);
+  }
+});
+
+/**
+ * Kill PTY terminal process (IPC HANDLER)
+ */
+ipcMain.handle('pty:kill', async (event, pid) => {
+  const process = terminalProcesses.get(pid);
+  if (process) {
+    process.kill();
+    terminalProcesses.delete(pid);
+    console.log(`🖥️ Killed terminal process: ${pid}`);
+    return true;
+  }
+  return false;
+});
+
+// Clean up all running servers and terminals on app exit
 process.on('exit', () => {
   console.log('🧹 Cleaning up running React dev servers...');
   for (const [projectId, serverInfo] of projectServers.entries()) {
     if (serverInfo.process && !serverInfo.process.killed) {
       serverInfo.process.kill('SIGTERM');
     }
+  }
+  
+  console.log('🧹 Cleaning up running terminal processes...');
+  for (const [pid, ptyProcess] of terminalProcesses.entries()) {
+    ptyProcess.kill();
   }
 });
 

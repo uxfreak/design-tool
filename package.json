@@ -8,13 +8,22 @@
     "dev": "electron . --dev",
     "dev:watch": "nodemon --watch . --ext js,html,css --exec \"electron . --dev\""
   },
-  "keywords": ["electron", "design", "react", "storybook"],
+  "keywords": [
+    "electron",
+    "design",
+    "react",
+    "storybook"
+  ],
   "author": "Design Tool Team",
   "license": "MIT",
   "dependencies": {
-    "electron-store": "^8.1.0"
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron-store": "^8.1.0",
+    "node-pty": "^1.0.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "electron": "^37.2.3",
     "nodemon": "^3.0.1"
   }
