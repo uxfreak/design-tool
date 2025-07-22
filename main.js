@@ -3,7 +3,7 @@
  * Basic Electron application following Generative Analysis principles
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const { spawn } = require('child_process');
@@ -359,6 +359,213 @@ function generateStorybookMain() {
     autodocs: 'tag',
   },
 };`;
+}
+
+// =============================================================================
+// THUMBNAIL GENERATION - PURE FUNCTIONS
+// =============================================================================
+
+/**
+ * Pure function to create thumbnail configuration
+ * @param {Object} options - Thumbnail options
+ * @returns {Object} Thumbnail configuration
+ */
+function createThumbnailConfig(options = {}) {
+  return {
+    width: options.width || 300,
+    height: options.height || 200,
+    quality: options.quality || 0.8,
+    format: options.format || 'png',
+    timeout: options.timeout || 10000, // 10 seconds
+    waitForLoad: options.waitForLoad || 3000, // 3 seconds
+    ...options
+  };
+}
+
+/**
+ * Pure function to create thumbnail file path
+ * @param {Object} project - Project object
+ * @param {Object} config - Thumbnail configuration
+ * @returns {string} Thumbnail file path
+ */
+function createThumbnailPath(project, config) {
+  // Ensure we have a valid project path
+  const projectPath = project.path || path.join(store.get('projectsDirectory', os.homedir()), project.name);
+  const thumbnailDir = path.join(projectPath, '.thumbnails');
+  const timestamp = Date.now();
+  const filename = `preview_${project.id}_${timestamp}.${config.format}`;
+  const fullPath = path.join(thumbnailDir, filename);
+  
+  return fullPath;
+}
+
+/**
+ * Pure function to check if thumbnail needs regeneration
+ * @param {string} thumbnailPath - Path to existing thumbnail
+ * @param {Object} project - Project object
+ * @param {number} maxAge - Max age in milliseconds
+ * @returns {Promise<boolean>} True if thumbnail needs regeneration
+ */
+async function shouldRegenerateThumbnail(thumbnailPath, project, maxAge = 3600000) { // 1 hour
+  try {
+    const [thumbStats, projectStats] = await Promise.all([
+      fs.stat(thumbnailPath),
+      fs.stat(path.join(project.path, 'package.json'))
+    ]);
+    
+    const thumbAge = Date.now() - thumbStats.mtime.getTime();
+    const isStale = thumbAge > maxAge;
+    const isOutdated = projectStats.mtime > thumbStats.mtime;
+    
+    return isStale || isOutdated;
+  } catch (error) {
+    // Thumbnail doesn't exist or error occurred
+    return true;
+  }
+}
+
+/**
+ * Pure function to create browser window options for thumbnail capture
+ * @param {Object} config - Thumbnail configuration
+ * @returns {Object} Browser window options
+ */
+function createThumbnailWindowConfig(config) {
+  return {
+    width: 1200,
+    height: 800,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: false // Allow loading local content
+    },
+    paintWhenInitiallyHidden: true,
+    enableLargerThanScreen: true
+  };
+}
+
+/**
+ * Pure function to process captured image for thumbnail
+ * @param {Electron.NativeImage} image - Captured image
+ * @param {Object} config - Thumbnail configuration
+ * @returns {Electron.NativeImage} Processed thumbnail
+ */
+function processImageThumbnail(image, config) {
+  const resized = image.resize({
+    width: config.width,
+    height: config.height,
+    quality: 'good'
+  });
+  
+  return resized;
+}
+
+/**
+ * Impure function to capture project thumbnail
+ * @param {Object} project - Project object
+ * @param {string} serverUrl - Server URL to capture
+ * @param {Object} config - Thumbnail configuration
+ * @returns {Promise<string>} Path to generated thumbnail
+ */
+async function captureProjectThumbnail(project, serverUrl, config) {
+  let thumbnailWindow = null;
+  
+  try {
+    // Ensure thumbnail directory exists
+    const thumbnailDir = path.dirname(createThumbnailPath(project, config));
+    await fs.mkdir(thumbnailDir, { recursive: true });
+    
+    // Create hidden browser window for capture
+    thumbnailWindow = new BrowserWindow(createThumbnailWindowConfig(config));
+    
+    // Load the project URL
+    await thumbnailWindow.loadURL(serverUrl);
+    
+    // Wait for page to fully load
+    await new Promise(resolve => setTimeout(resolve, config.waitForLoad));
+    
+    // Capture page screenshot
+    const image = await thumbnailWindow.capturePage();
+    
+    // Process image into thumbnail
+    const thumbnail = processImageThumbnail(image, config);
+    
+    // Save thumbnail to file
+    const thumbnailPath = createThumbnailPath(project, config);
+    const buffer = thumbnail.toPNG();
+    await fs.writeFile(thumbnailPath, buffer);
+    
+    console.log(`📸 Generated thumbnail for ${project.name}: ${thumbnailPath}`);
+    return thumbnailPath;
+    
+  } catch (error) {
+    console.error(`❌ Thumbnail generation failed for ${project.name}:`, error.message);
+    throw error;
+  } finally {
+    if (thumbnailWindow && !thumbnailWindow.isDestroyed()) {
+      thumbnailWindow.close();
+    }
+  }
+}
+
+/**
+ * Pure function to create fallback thumbnail path for templates
+ * @param {string} templateId - Template identifier
+ * @returns {string} Fallback thumbnail path
+ */
+function createFallbackThumbnailPath(templateId) {
+  // For now, return a special identifier that the frontend can handle
+  // The frontend will show a CSS-based fallback instead of trying to load a file
+  return `fallback:${templateId}`;
+}
+
+/**
+ * Impure function to generate or retrieve project thumbnail
+ * @param {Object} project - Project object
+ * @param {boolean} forceRegenerate - Force thumbnail regeneration
+ * @returns {Promise<string>} Path to thumbnail image
+ */
+async function getProjectThumbnail(project, forceRegenerate = false) {
+  const config = createThumbnailConfig();
+  
+  try {
+    // Check if project server is running for fresh thumbnail generation
+    const serverInfo = projectServers.get(project.id);
+    if (!serverInfo || !serverInfo.url) {
+      console.log(`⚠️ No server running for ${project.name}, using fallback thumbnail`);
+      
+      // Ensure template is a string
+      const templateId = typeof project.template === 'string' ? project.template : 'react-basic';
+      return createFallbackThumbnailPath(templateId);
+    }
+    
+    // Always generate fresh thumbnail if server is running and regeneration is forced
+    if (forceRegenerate) {
+      console.log(`📸 Generating fresh thumbnail for ${project.name}`);
+      return await captureProjectThumbnail(project, serverInfo.url, config);
+    }
+    
+    // Check if existing thumbnail exists and is recent
+    const thumbnailPath = createThumbnailPath(project, config);
+    const needsRegeneration = await shouldRegenerateThumbnail(thumbnailPath, project);
+    
+    if (!needsRegeneration) {
+      console.log(`📷 Using existing thumbnail for ${project.name}`);
+      return thumbnailPath;
+    }
+    
+    // Generate new thumbnail
+    console.log(`📸 Generating new thumbnail for ${project.name}`);
+    return await captureProjectThumbnail(project, serverInfo.url, config);
+    
+  } catch (error) {
+    console.error(`❌ Thumbnail generation error for ${project.name}:`, error.message);
+    
+    // Return fallback thumbnail for template
+    const templateId = typeof project.template === 'string' ? project.template : 'react-basic';
+    return createFallbackThumbnailPath(templateId);
+  }
 }
 
 /**
@@ -815,6 +1022,64 @@ ipcMain.handle('project:update-env', async (event, { projectPath, envVars }) => 
     return { success: true };
   } catch (error) {
     console.error('Failed to update environment file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Thumbnail Generation IPC Handlers
+
+ipcMain.handle('project:generate-thumbnail', async (event, projectId, forceRegenerate = false) => {
+  try {
+    console.log('📸 Generating thumbnail for project:', projectId);
+    
+    const projects = store.get('projects', []);
+    const project = projects.find(p => p.id === projectId);
+    
+    if (!project) {
+      return { success: false, error: 'Project not found' };
+    }
+    
+    const thumbnailPath = await getProjectThumbnail(project, forceRegenerate);
+    
+    // Ensure thumbnailPath is a string
+    if (typeof thumbnailPath !== 'string') {
+      throw new Error(`Expected string path, got ${typeof thumbnailPath}: ${thumbnailPath}`);
+    }
+    
+    return { 
+      success: true, 
+      thumbnailPath,
+      project: project.name 
+    };
+  } catch (error) {
+    console.error('❌ Thumbnail generation failed:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('project:get-thumbnail', async (event, projectId) => {
+  try {
+    const projects = store.get('projects', []);
+    const project = projects.find(p => p.id === projectId);
+    
+    if (!project) {
+      return { success: false, error: 'Project not found' };
+    }
+    
+    const config = createThumbnailConfig();
+    const thumbnailPath = createThumbnailPath(project, config);
+    
+    // Check if thumbnail exists
+    try {
+      await fs.access(thumbnailPath);
+      return { success: true, thumbnailPath };
+    } catch {
+      // Return fallback thumbnail
+      const templateId = typeof project.template === 'string' ? project.template : 'react-basic';
+      const fallbackPath = createFallbackThumbnailPath(templateId);
+      return { success: true, thumbnailPath: fallbackPath, isFallback: true };
+    }
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });

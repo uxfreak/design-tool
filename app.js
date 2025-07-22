@@ -465,45 +465,286 @@ function updateProjectsDisplay() {
         // Update container class for view mode
         projectsDisplay.className = appState.currentView === 'grid' ? 'projects-grid' : 'projects-list';
         
-        // Render projects
+        // Render projects with async thumbnail loading
         const displayData = createProjectDisplayData(appState.projects, appState.currentView);
-        projectsDisplay.innerHTML = displayData.map(renderProjectCard).join('');
+        
+        // Show loading placeholder first
+        projectsDisplay.innerHTML = displayData.map(project => {
+            const config = createProjectCardConfig(project);
+            const loadingThumbnail = `
+                <div class="project-thumbnail">
+                    <div class="thumbnail-loading">
+                        <i data-lucide="image" class="thumbnail-icon loading"></i>
+                        <span class="thumbnail-text">Loading...</span>
+                    </div>
+                </div>
+            `;
+            return createProjectCardHTML(config, loadingThumbnail);
+        }).join('');
+        
+        // Load thumbnails asynchronously
+        Promise.all(displayData.map(renderProjectCard))
+            .then(cards => {
+                projectsDisplay.innerHTML = cards.join('');
+                // Re-initialize icons after DOM update
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading project thumbnails:', error);
+            });
     }
 }
 
-function renderProjectCard(project) {
+/**
+ * Pure function to create project card configuration
+ * @param {Object} project - Project object
+ * @returns {Object} Card configuration
+ */
+function createProjectCardConfig(project) {
     const statusStyle = `color: ${project.statusDisplay.color}`;
     const isCreating = project.status === 'CREATING';
     const isOpening = project.status === 'OPENING';
     const isRunning = project.status === 'RUNNING';
     
-    return `
-        <div class="project-card" data-project-id="${project.id}">
-            <div onclick="enhancedOpenProjectViewer('${project.id}')" style="cursor: ${isCreating ? 'default' : 'pointer'}; flex: 1;">
-                <div class="project-name">${project.name}</div>
-                <div class="project-meta">
-                    ${project.templateDisplay} • Created ${project.displayCreatedAt}
-                </div>
-                <div class="project-status" style="${statusStyle}">
-                    ${project.statusDisplay.text}
+    return {
+        project,
+        statusStyle,
+        isCreating,
+        isOpening,
+        isRunning,
+        cursor: isCreating ? 'default' : 'pointer',
+        openButtonColor: isCreating || isOpening ? '#ccc' : (isRunning ? '#4caf50' : '#667eea'),
+        deleteButtonColor: isCreating || isOpening ? '#ccc' : '#f44336',
+        buttonCursor: isCreating || isOpening ? 'not-allowed' : 'pointer',
+        isDisabled: isCreating || isOpening
+    };
+}
+
+/**
+ * Pure function to create thumbnail HTML element
+ * @param {Object} config - Card configuration
+ * @param {string} thumbnailPath - Path to thumbnail image
+ * @returns {string} Thumbnail HTML
+ */
+/**
+ * Pure function to create template icon mapping
+ * @param {string} templateId - Template identifier
+ * @returns {Object} Icon and color configuration
+ */
+function getTemplateIconConfig(templateId) {
+    const configs = {
+        'react-basic': { icon: 'component', color: '#61dafb', name: 'React' },
+        'react-typescript': { icon: 'layers', color: '#3178c6', name: 'React + TS' },
+        'react-storybook': { icon: 'book-open', color: '#ff4785', name: 'Storybook' },
+        'react-storybook-tailwind': { icon: 'palette', color: '#06b6d4', name: 'React + Tailwind' }
+    };
+    return configs[templateId] || { icon: 'folder', color: '#667eea', name: 'Project' };
+}
+
+function createThumbnailElement(config, thumbnailPath = null) {
+    // Always show project name prominently, not template name
+    const projectName = config.project.name;
+    const templateId = config.project.template || 'react-basic';
+    const iconConfig = getTemplateIconConfig(templateId);
+    
+    // Handle live screenshot thumbnails
+    if (thumbnailPath && !thumbnailPath.startsWith('fallback:') && thumbnailPath !== 'fallback') {
+        return `
+            <div class="project-thumbnail">
+                <img src="file://${thumbnailPath}" 
+                     alt="${projectName} preview" 
+                     class="thumbnail-image"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="thumbnail-fallback" style="display: none;">
+                    <div class="template-preview" style="border-color: ${iconConfig.color};">
+                        <div class="template-icon" style="color: ${iconConfig.color};">
+                            <i data-lucide="${iconConfig.icon}" class="template-icon-svg"></i>
+                        </div>
+                        <div class="template-name">${projectName}</div>
+                        <div class="template-subtitle">${iconConfig.name}</div>
+                    </div>
                 </div>
             </div>
-            <div class="project-actions" style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                <button 
-                    onclick="enhancedOpenProjectViewer('${project.id}')" 
-                    ${isCreating || isOpening ? 'disabled' : ''} 
-                    style="background: ${isCreating || isOpening ? '#ccc' : (isRunning ? '#4caf50' : '#667eea')}; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: ${isCreating || isOpening ? 'not-allowed' : 'pointer'}; font-size: 0.8rem;">
-                    ${isRunning ? 'View Project' : 'Open'}
-                </button>
-                <button 
-                    onclick="deleteProject('${project.id}')" 
-                    ${isCreating || isOpening ? 'disabled' : ''} 
-                    style="background: ${isCreating || isOpening ? '#ccc' : '#f44336'}; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: ${isCreating || isOpening ? 'not-allowed' : 'pointer'}; font-size: 0.8rem;">
-                    Delete
-                </button>
+        `;
+    } 
+    
+    // Always show template preview for fallback cases
+    return `
+        <div class="project-thumbnail template-thumbnail" data-template="${templateId}">
+            <div class="template-preview" style="border-color: ${iconConfig.color};">
+                <div class="template-icon" style="color: ${iconConfig.color};">
+                    <i data-lucide="${iconConfig.icon}" class="template-icon-svg"></i>
+                </div>
+                <div class="template-name">${projectName}</div>
+                <div class="template-subtitle">${iconConfig.name}</div>
             </div>
         </div>
     `;
+}
+
+/**
+ * Pure function to create project card content HTML
+ * @param {Object} config - Card configuration
+ * @param {string} thumbnailHtml - Thumbnail HTML element
+ * @returns {string} Project card HTML
+ */
+function createProjectCardHTML(config, thumbnailHtml) {
+    return `
+        <div class="project-card" data-project-id="${config.project.id}">
+            ${thumbnailHtml}
+            <div class="project-card-content">
+                <div class="project-card-header" 
+                     onclick="enhancedOpenProjectViewer('${config.project.id}')" 
+                     style="cursor: ${config.cursor};">
+                    <div class="project-name" title="${config.project.name}">
+                        <i data-lucide="folder" class="project-icon"></i>
+                        ${config.project.name}
+                    </div>
+                    <div class="project-meta" title="${config.project.templateDisplay} • Created ${config.project.displayCreatedAt}">
+                        <i data-lucide="layers" class="meta-icon"></i>
+                        <span>${config.project.templateDisplay}</span>
+                        <i data-lucide="clock" class="meta-icon"></i>
+                        <span>${config.project.displayCreatedAt}</span>
+                    </div>
+                    <div class="project-status" style="${config.statusStyle}" title="${config.project.statusDisplay.text}">
+                        <i data-lucide="activity" class="status-icon"></i>
+                        ${config.project.statusDisplay.text}
+                    </div>
+                </div>
+                <div class="project-actions">
+                    <button 
+                        onclick="enhancedOpenProjectViewer('${config.project.id}')" 
+                        ${config.isDisabled ? 'disabled' : ''} 
+                        class="project-action-btn primary"
+                        style="background: ${config.openButtonColor}; cursor: ${config.buttonCursor};"
+                        title="${config.isRunning ? 'View Project' : 'Open Project'}">
+                        <i data-lucide="${config.isRunning ? 'eye' : 'play'}" class="icon"></i>
+                        ${config.isRunning ? 'View' : 'Open'}
+                    </button>
+                    <button 
+                        onclick="generateProjectThumbnail('${config.project.id}')" 
+                        ${config.isDisabled ? 'disabled' : ''} 
+                        class="project-action-btn secondary"
+                        style="cursor: ${config.buttonCursor};"
+                        title="Refresh Thumbnail">
+                        <i data-lucide="camera" class="icon"></i>
+                        Capture
+                    </button>
+                    <button 
+                        onclick="deleteProject('${config.project.id}')" 
+                        ${config.isDisabled ? 'disabled' : ''} 
+                        class="project-action-btn danger"
+                        style="background: ${config.deleteButtonColor}; cursor: ${config.buttonCursor};"
+                        title="Delete Project">
+                        <i data-lucide="trash-2" class="icon"></i>
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Async function to render project card with thumbnail
+ * @param {Object} project - Project object
+ * @returns {Promise<string>} Project card HTML with thumbnail
+ */
+async function renderProjectCard(project) {
+    const config = createProjectCardConfig(project);
+    
+    try {
+        // Try to get existing thumbnail
+        const thumbnailResult = await window.electronAPI.getProjectThumbnail(project.id);
+        const thumbnailPath = thumbnailResult.success ? thumbnailResult.thumbnailPath : null;
+        
+        const thumbnailHtml = createThumbnailElement(config, thumbnailPath);
+        return createProjectCardHTML(config, thumbnailHtml);
+    } catch (error) {
+        console.error('Error loading thumbnail for project:', project.name, error);
+        // Fall back to template-based thumbnail
+        const thumbnailHtml = createThumbnailElement(config);
+        return createProjectCardHTML(config, thumbnailHtml);
+    }
+}
+
+/**
+ * Generate or refresh project thumbnail
+ * @param {string} projectId - Project ID
+ */
+async function generateProjectThumbnail(projectId) {
+    try {
+        console.log('📸 Generating thumbnail for project:', projectId);
+        
+        // Find the project card and show loading state
+        const projectCard = document.querySelector(`[data-project-id="${projectId}"]`);
+        const thumbnailElement = projectCard?.querySelector('.project-thumbnail');
+        
+        if (thumbnailElement) {
+            thumbnailElement.innerHTML = `
+                <div class="thumbnail-loading">
+                    <i data-lucide="camera" class="thumbnail-icon loading"></i>
+                    <span class="thumbnail-text">Capturing...</span>
+                </div>
+            `;
+            
+            // Re-initialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+        
+        // Generate thumbnail
+        const result = await window.electronAPI.generateProjectThumbnail(projectId, true);
+        
+        if (result.success) {
+            console.log('✅ Thumbnail generated successfully:', result.thumbnailPath);
+            
+            // Update the thumbnail in the UI
+            if (thumbnailElement) {
+                thumbnailElement.innerHTML = `
+                    <img src="file://${result.thumbnailPath}?t=${Date.now()}" 
+                         alt="${result.project} preview" 
+                         class="thumbnail-image"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="thumbnail-fallback" style="display: none;">
+                        <i data-lucide="image" class="thumbnail-icon"></i>
+                        <span class="thumbnail-text">Failed to load</span>
+                    </div>
+                `;
+                
+                // Re-initialize icons
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+        } else {
+            throw new Error(result.error);
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to generate thumbnail:', error);
+        
+        // Show error state
+        const projectCard = document.querySelector(`[data-project-id="${projectId}"]`);
+        const thumbnailElement = projectCard?.querySelector('.project-thumbnail');
+        
+        if (thumbnailElement) {
+            thumbnailElement.innerHTML = `
+                <div class="thumbnail-fallback">
+                    <i data-lucide="alert-circle" class="thumbnail-icon error"></i>
+                    <span class="thumbnail-text">Capture failed</span>
+                </div>
+            `;
+            
+            // Re-initialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+    }
 }
 
 // Modal Functions

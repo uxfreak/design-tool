@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopProjectServer: (projectId) => ipcRenderer.invoke('project:stop-server', projectId),
   getProjectServerStatus: (projectId) => ipcRenderer.invoke('project:get-server-status', projectId),
   
+  // Thumbnail operations  
+  generateProjectThumbnail: (projectId, forceRegenerate) => ipcRenderer.invoke('project:generate-thumbnail', projectId, forceRegenerate),
+  getProjectThumbnail: (projectId) => ipcRenderer.invoke('project:get-thumbnail', projectId),
+  
   // Component discovery operations
   discoverComponents: (projectId) => ipcRenderer.invoke('project:discover-components', projectId),
   
