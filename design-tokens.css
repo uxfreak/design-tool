@@ -1,0 +1,260 @@
+/* 
+ * Design System Tokens
+ * Foundation for consistent, professional UI across the Design Tool
+ * 
+ * Usage: Import this file before all other styles to access design tokens
+ */
+
+:root {
+  /* ===== COLOR TOKENS ===== */
+  
+  /* Primary Colors - Brand Identity */
+  --color-primary: #667eea;
+  --color-primary-hover: #5a67d8;
+  --color-primary-light: rgba(102, 126, 234, 0.1);
+  --color-primary-shadow: rgba(102, 126, 234, 0.3);
+  
+  /* Secondary Colors - Accent */
+  --color-secondary: #764ba2;
+  --color-secondary-light: rgba(118, 75, 162, 0.1);
+  
+  /* Gradient - Primary brand gradient */
+  --gradient-primary: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+  
+  /* Surface Colors - Backgrounds */
+  --color-surface-primary: #1a1a1a;    /* Main background */
+  --color-surface-secondary: #1f1f1f;  /* Header, status bar */
+  --color-surface-tertiary: #2a2a2a;   /* Cards, modals, elevated elements */
+  --color-surface-quaternary: #333;     /* Buttons, inputs, borders */
+  
+  /* Text Colors - Hierarchy */
+  --color-text-primary: #ffffff;       /* Main text, headings */
+  --color-text-secondary: #ccc;        /* Secondary text, labels */
+  --color-text-tertiary: #888;         /* Muted text, metadata */
+  --color-text-placeholder: #666;      /* Placeholder text */
+  
+  /* Border Colors */
+  --color-border-primary: #333;        /* Main borders */
+  --color-border-secondary: #444;      /* Secondary borders, focus */
+  --color-border-muted: rgba(102, 126, 234, 0.3); /* Subtle borders */
+  
+  /* Status Colors - Semantic */
+  --color-success: #4caf50;
+  --color-success-light: #28ca42;
+  --color-warning: #ffbd2e;
+  --color-error: #f44336;
+  --color-error-hover: #dc2626;
+  --color-info: #667eea;
+  
+  /* Interactive States */
+  --color-hover: #555;
+  --color-active: var(--color-primary);
+  --color-disabled: rgba(255, 255, 255, 0.5);
+  
+  /* ===== SPACING TOKENS ===== */
+  
+  /* Base unit: 0.25rem (4px) */
+  --space-1: 0.25rem;    /* 4px */
+  --space-2: 0.5rem;     /* 8px */
+  --space-3: 0.75rem;    /* 12px */
+  --space-4: 1rem;       /* 16px */
+  --space-5: 1.25rem;    /* 20px */
+  --space-6: 1.5rem;     /* 24px */
+  --space-8: 2rem;       /* 32px */
+  --space-10: 2.5rem;    /* 40px */
+  --space-12: 3rem;      /* 48px */
+  --space-16: 4rem;      /* 64px */
+  --space-20: 5rem;      /* 80px */
+  
+  /* Component-specific spacing */
+  --padding-xs: var(--space-2);
+  --padding-sm: var(--space-3);
+  --padding-md: var(--space-4);
+  --padding-lg: var(--space-6);
+  --padding-xl: var(--space-8);
+  
+  --margin-xs: var(--space-2);
+  --margin-sm: var(--space-3);
+  --margin-md: var(--space-4);
+  --margin-lg: var(--space-6);
+  --margin-xl: var(--space-8);
+  
+  /* ===== TYPOGRAPHY TOKENS ===== */
+  
+  /* Font Families */
+  --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  
+  /* Font Sizes */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.85rem;     /* 13.6px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.05rem;     /* 16.8px */
+  --text-xl: 1.2rem;      /* 19.2px */
+  --text-2xl: 1.3rem;     /* 20.8px */
+  --text-3xl: 1.5rem;     /* 24px */
+  --text-4xl: 2rem;       /* 32px */
+  
+  /* Font Weights */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  
+  /* Line Heights */
+  --leading-tight: 1.25;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.5;
+  
+  /* ===== BORDER RADIUS TOKENS ===== */
+  
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 50%;
+  
+  /* ===== SHADOW TOKENS ===== */
+  
+  /* Elevation levels for depth hierarchy */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(102, 126, 234, 0.1);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.5);
+  
+  /* Interactive shadows */
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-focus: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  --shadow-primary: 0 4px 16px rgba(102, 126, 234, 0.3);
+  
+  /* ===== ANIMATION TOKENS ===== */
+  
+  /* Duration */
+  --duration-fast: 0.15s;
+  --duration-normal: 0.2s;
+  --duration-slow: 0.3s;
+  --duration-slower: 0.4s;
+  
+  /* Easing */
+  --ease-linear: linear;
+  --ease-in: ease-in;
+  --ease-out: ease-out;
+  --ease-in-out: ease-in-out;
+  --ease-spring: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* ===== LAYOUT TOKENS ===== */
+  
+  /* Container widths */
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1200px;
+  
+  /* Component sizes */
+  --size-xs: 24px;
+  --size-sm: 32px;
+  --size-md: 40px;
+  --size-lg: 48px;
+  --size-xl: 64px;
+  
+  /* Icon sizes */
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+  --icon-2xl: 32px;
+  
+  /* ===== Z-INDEX TOKENS ===== */
+  
+  --z-base: 0;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 1000;
+  --z-toast: 2000;
+  --z-tooltip: 3000;
+}
+
+/* ===== SEMANTIC COLOR ALIASES ===== */
+
+:root {
+  /* Button variants */
+  --btn-primary-bg: var(--gradient-primary);
+  --btn-primary-hover: var(--color-primary-hover);
+  --btn-secondary-bg: var(--color-surface-quaternary);
+  --btn-secondary-hover: var(--color-hover);
+  --btn-danger-bg: var(--color-error);
+  --btn-danger-hover: var(--color-error-hover);
+  
+  /* Status indicators */
+  --status-active: var(--color-success);
+  --status-inactive: var(--color-text-tertiary);
+  --status-error: var(--color-error);
+  
+  /* Terminal colors */
+  --terminal-bg: var(--color-surface-primary);
+  --terminal-text: var(--color-text-primary);
+  --terminal-border: var(--color-border-primary);
+  
+  /* Card/Modal colors */
+  --card-bg: var(--color-surface-tertiary);
+  --card-border: transparent;
+  --card-hover-border: var(--color-primary);
+  
+  /* Form colors */
+  --input-bg: var(--color-surface-primary);
+  --input-border: var(--color-border-secondary);
+  --input-focus: var(--color-primary);
+}
+
+/* ===== DESIGN SYSTEM UTILITIES ===== */
+
+/* Text utilities using design tokens */
+.text-xs { font-size: var(--text-xs); }
+.text-sm { font-size: var(--text-sm); }
+.text-base { font-size: var(--text-base); }
+.text-lg { font-size: var(--text-lg); }
+.text-xl { font-size: var(--text-xl); }
+.text-2xl { font-size: var(--text-2xl); }
+.text-3xl { font-size: var(--text-3xl); }
+.text-4xl { font-size: var(--text-4xl); }
+
+.font-normal { font-weight: var(--weight-normal); }
+.font-medium { font-weight: var(--weight-medium); }
+.font-semibold { font-weight: var(--weight-semibold); }
+.font-bold { font-weight: var(--weight-bold); }
+
+/* Spacing utilities */
+.p-xs { padding: var(--padding-xs); }
+.p-sm { padding: var(--padding-sm); }
+.p-md { padding: var(--padding-md); }
+.p-lg { padding: var(--padding-lg); }
+.p-xl { padding: var(--padding-xl); }
+
+.m-xs { margin: var(--margin-xs); }
+.m-sm { margin: var(--margin-sm); }
+.m-md { margin: var(--margin-md); }
+.m-lg { margin: var(--margin-lg); }
+.m-xl { margin: var(--margin-xl); }
+
+/* Border radius utilities */
+.rounded-sm { border-radius: var(--radius-sm); }
+.rounded-md { border-radius: var(--radius-md); }
+.rounded-lg { border-radius: var(--radius-lg); }
+.rounded-xl { border-radius: var(--radius-xl); }
+.rounded-2xl { border-radius: var(--radius-2xl); }
+.rounded-full { border-radius: var(--radius-full); }
+
+/* Shadow utilities */
+.shadow-sm { box-shadow: var(--shadow-sm); }
+.shadow-md { box-shadow: var(--shadow-md); }
+.shadow-lg { box-shadow: var(--shadow-lg); }
+.shadow-xl { box-shadow: var(--shadow-xl); }
+
+/* Animation utilities */
+.transition-fast { transition-duration: var(--duration-fast); }
+.transition-normal { transition-duration: var(--duration-normal); }
+.transition-slow { transition-duration: var(--duration-slow); }
+.transition-spring { transition-timing-function: var(--ease-spring); }

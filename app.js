@@ -1737,18 +1737,38 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
                 let statusCheckInterval;
                 
                 function selectComponent(componentName) {
+                    console.log('🔍 selectComponent called with:', componentName);
                     selectedComponent = componentName;
                     
                     // Update navigation active state
+                    console.log('🔍 Updating navigation active state...');
                     document.querySelectorAll('.component-nav-item').forEach(item => {
                         item.classList.remove('active');
                     });
-                    document.querySelector('[data-component="' + componentName + '"]').classList.add('active');
+                    const targetNav = document.querySelector('[data-component="' + componentName + '"]');
+                    if (targetNav) {
+                        targetNav.classList.add('active');
+                        console.log('🔍 Nav item activated:', componentName);
+                    } else {
+                        console.log('❌ Nav item not found for:', componentName);
+                    }
                     
                     // Update main content
+                    console.log('🔍 Finding component:', componentName);
                     const component = components.find(c => c.name === componentName);
-                    const mainContent = document.querySelector('.storybook-main');
-                    mainContent.innerHTML = generateMainContent(component);
+                    if (component) {
+                        console.log('🔍 Component found:', component);
+                        const mainContent = document.querySelector('.storybook-main');
+                        if (mainContent) {
+                            console.log('🔍 Updating main content...');
+                            mainContent.innerHTML = generateMainContent(component);
+                            console.log('🔍 Main content updated successfully');
+                        } else {
+                            console.log('❌ Main content element not found');
+                        }
+                    } else {
+                        console.log('❌ Component not found:', componentName);
+                    }
                 }
                 
                 function generateMainContent(component) {
@@ -2062,9 +2082,40 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
                     }, 1000);
                 }
                 
-                // Initialize first component selection
-                if (selectedComponent) {
-                    document.querySelector(\`[data-component="\${selectedComponent}"]\`).classList.add('active');
+                // Add event delegation for component navigation clicks
+                function initializeNavigation() {
+                    console.log('🔍 Initializing component navigation...');
+                    
+                    // Add click handler with debugging
+                    document.addEventListener('click', function(event) {
+                        console.log('🔍 Click detected:', event.target);
+                        const navItem = event.target.closest('.component-nav-item');
+                        if (navItem) {
+                            console.log('🔍 Nav item found:', navItem);
+                            const componentName = navItem.getAttribute('data-component');
+                            console.log('🔍 Component name:', componentName);
+                            if (componentName) {
+                                console.log('🔍 Calling selectComponent with:', componentName);
+                                selectComponent(componentName);
+                            }
+                        }
+                    });
+                    
+                    // Initialize first component selection
+                    if (selectedComponent) {
+                        const firstComponent = document.querySelector('[data-component="' + selectedComponent + '"]');
+                        if (firstComponent) {
+                            firstComponent.classList.add('active');
+                            console.log('🔍 First component activated:', selectedComponent);
+                        }
+                    }
+                }
+                
+                // Initialize when DOM is ready
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initializeNavigation);
+                } else {
+                    initializeNavigation();
                 }
             </script>
         </body>
@@ -2179,7 +2230,7 @@ function generateComponentSidebar(components) {
                 : component.fileName;
                 
             return `
-                <div class="component-nav-item" data-component="${component.name}" onclick="selectComponent('${component.name}')">
+                <div class="component-nav-item" data-component="${component.name}">
                     <div class="component-nav-icon">🧩</div>
                     <div>
                         <div class="component-nav-name">${component.name}</div>
