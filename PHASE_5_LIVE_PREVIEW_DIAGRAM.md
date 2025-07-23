@@ -2,25 +2,27 @@
 
 ## System Overview Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Design Tool Electron App                        │
-├─────────────────────────────────────────────────────────────────────┤
-│  Frontend (Renderer Process)           │  Backend (Main Process)    │
-│  ├─ app.js                            │  ├─ main.js                │
-│  ├─ Workflow Preview Modal            │  ├─ React Dev Server Mgmt  │
-│  ├─ Live Iframe Display               │  ├─ Process Lifecycle      │
-│  └─ Interactive Controls              │  └─ Port Management        │
-├─────────────────────────────────────────────────────────────────────┤
-│                       IPC Bridge (preload.js)                      │
-│  ├─ project:start-server              │  ├─ project:stop-server    │
-│  └─ project:get-server-status         │  └─ Secure Context Bridge  │
-├─────────────────────────────────────────────────────────────────────┤
-│                    External Processes                               │
-│  ├─ React Dev Server (npm start)      │  ├─ Port 3000, 3001...    │
-│  ├─ Webpack Dev Server                │  ├─ Hot Module Reload      │
-│  └─ create-react-app Runtime          │  └─ Live Code Changes      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+  subgraph Renderer
+    A[app.js]
+    B[Workflow Preview Modal]
+    C[Live Iframe Display]
+  end
+  subgraph Main
+    D[main.js]
+    E[React Dev Server Mgmt]
+    F[Process Lifecycle]
+    G[Port Management]
+  end
+  subgraph IPC
+    H[preload.js]
+  end
+  subgraph External
+    I[React Dev Server]
+  end
+  Renderer -- IPC --> Main
+  Main -- spawn --> External
 ```
 
 ## Live Preview Sequence Diagram
