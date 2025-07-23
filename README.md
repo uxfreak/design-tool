@@ -1,124 +1,96 @@
-# Design Tool - Living Design System Manager
+# Design Tool - React Project Management with AI Assistance
 
-> A comprehensive desktop application for React project management with embedded Claude Code assistance
+> Desktop application for React development with integrated Claude Code terminal following Generative Analysis methodology
 
-## Overview
+## Purpose and Benefits
 
-The Design Tool is a production-ready Electron desktop application that transforms React development workflow by providing:
+### P1: System Purpose
+One (1) Design Tool application serves exactly one (1) primary purpose: enabling React developers to bootstrap projects, discover components, manage development servers, and receive AI development assistance through an integrated terminal interface.
 
-- **Project Management**: Create, organize, and manage React projects with professional templates
-- **Live Development**: Real-time React dev server integration with iframe previews
-- **Component Discovery**: Automatic scanning and display of React components with variants
-- **Terminal Integration**: Embedded Claude Code assistance with persistent sessions
-- **Settings Management**: User-configurable preferences with robust persistence
+### P2: Target Users
+The Design Tool benefits:
+- React developers who need project management tools
+- Teams building component libraries  
+- Developers who want AI-assisted development workflow
+- Anyone learning React development patterns
 
-## Features
+### P3: Measurable Benefits
+The system provides quantifiable improvements:
+- Reduce project setup time from hours to minutes (< 2 minutes for standard templates)
+- Automate component discovery with >95% accuracy for standard React patterns
+- Achieve >98% development server startup success rate
+- Maintain 100% terminal session persistence across navigation events
+- Ensure zero data loss during project management operations
 
-### ✅ Complete Project Lifecycle
-- **Create Projects**: Bootstrap React applications using create-react-app with custom templates
-- **Live Previews**: Real-time iframe displays of running React applications
-- **Component Library**: Dark mode interface showing discovered components with variants
-- **Terminal Access**: Embedded xterm.js terminal with Claude Code integration
+## System Requirements
 
-### ✅ Professional Development Experience
-- **VS Code-like Terminal**: Persistent sessions that survive tab switches
-- **Process Management**: Smart port allocation and lifecycle management
-- **Error Recovery**: Comprehensive validation and automatic cleanup
-- **Settings Persistence**: User preferences stored with electron-store
+### R1: Project Management
+- **R1.1**: The system SHALL create new React projects using specified templates
+- **R1.2**: The system SHALL validate project names for uniqueness and filesystem compatibility
+- **R1.3**: The system SHALL display real-time progress during project creation
+- **R1.4**: The system SHALL persist project metadata in a project registry
 
-### ✅ Technical Excellence
-- **Functional Programming**: Pure functions throughout with immutable data patterns
-- **Secure Architecture**: Proper IPC communication with contextBridge isolation
-- **Performance Optimized**: Efficient component discovery and terminal session reuse
-- **Robust Error Handling**: Comprehensive validation and recovery mechanisms
-### Reusable Function Library
-The `lib/` folder exposes small pure functions such as `createDefaultWorkflow` and `createProjectPlan`. These can be published as an open source module for reuse across projects.
+### R2: Development Server Management  
+- **R2.1**: The system SHALL start development servers automatically when projects are opened
+- **R2.2**: The system SHALL allocate unique ports for each development server
+- **R2.3**: The system SHALL monitor development server health and status
+- **R2.4**: The system SHALL provide manual start/stop controls for development servers
 
+### R3: Component Discovery
+- **R3.1**: The system SHALL scan project files to identify React components
+- **R3.2**: The system SHALL extract component variants from source code patterns
+- **R3.3**: The system SHALL display components in a browsable library interface
+- **R3.4**: The system SHALL provide live preview of component variants
 
-## Architecture
-
-### System Components
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     DESIGN TOOL ARCHITECTURE                    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐ │
-│  │   MAIN PROCESS  │    │ RENDERER PROCESS │    │   EXTERNAL   │ │
-│  │   (Node.js)     │    │   (Chromium)     │    │   PROCESSES  │ │
-│  │                 │    │                 │    │              │ │
-│  │ • Project Mgmt  │◄──►│ • Frontend UI   │    │ • React Dev  │ │
-│  │ • Server Mgmt   │    │ • Project Tabs  │    │   Servers    │ │
-│  │ • PTY Manager   │    │ • xterm.js      │    │ • PTY Procs  │ │
-│  │ • Persistence   │    │ • Settings UI   │    │   (Claude)   │ │
-│  └─────────────────┘    └─────────────────┘    └──────────────┘ │
-│           │                        │                    │       │
-│           └────────── IPC ─────────┴────── Process ─────┘       │
-│                    Communication        Management              │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Terminal Integration
-The embedded terminal provides a complete development environment:
-
-- **xterm.js Frontend**: Professional terminal display with dark theme
-- **node-pty Backend**: Real shell processes with proper lifecycle management  
-- **Session Persistence**: Terminals survive tab switches via DOM element reuse
-- **Claude Code Access**: Direct integration for development assistance
+### R4: Terminal Integration
+- **R4.1**: The system SHALL provide an embedded terminal with full shell access
+- **R4.2**: The system SHALL inject project context into terminal environment
+- **R4.3**: The system SHALL maintain terminal sessions across navigation
+- **R4.4**: The system SHALL support Claude Code integration with project awareness
 
 ## Installation
 
 ### Prerequisites
-- Node.js 16+ or Electron 19+
-- npm or yarn package manager
-- Claude Code CLI (optional, for terminal assistance)
+- **P4.1**: Node.js 16+ or Electron 19+
+- **P4.2**: npm or yarn package manager  
+- **P4.3**: Claude Code CLI (optional, for terminal assistance)
 
-### Setup
-```bash
-# Clone or download the project
-cd design-tool
+### Setup Process
+**R5.1**: Clone or download the project repository
+**R5.2**: Execute dependency installation: `npm install`
+**R5.3**: Launch application: `npm start`
+**R5.4**: For development with auto-restart: `npm run dev:watch`
 
-# Install dependencies
-npm install
+## Usage Workflow
 
-# Start the application
-npm start
+### Project Creation
+**R6.1**: Click "Create New Project" button on dashboard
+**R6.2**: Configure project name and template selection
+**R6.3**: Monitor real-time progress (Planning → Scaffolding → Installing → Ready)
+**R6.4**: Project automatically opens in Project Viewer with tabbed interface
 
-# Development mode with auto-restart
-npm run dev:watch
-```
+### Component Discovery
+**R7.1**: Open project to automatically scan for React components
+**R7.2**: View discovered components in Component Library tab
+**R7.3**: Click component variants for live preview
+**R7.4**: Use refresh button to update when adding new components
 
-## Usage
+### Terminal Integration
+**R8.1**: Click terminal button (📟) in header to open sidebar
+**R8.2**: Access full shell with project context automatically injected
+**R8.3**: Use `claude --continue` for AI development assistance
+**R8.4**: Sessions persist across tab switches and application navigation
 
-### Creating Projects
-1. **Launch Application**: Start the Design Tool
-2. **Create Project**: Click "Create New Project"
-3. **Configure**: Choose template (react-basic, react-typescript, react-storybook)
-4. **Generate**: Application creates project with create-react-app
-5. **Open**: Automatically opens project viewer with tabs
+## Project Templates
 
-### Project Management
-- **Component Library**: View discovered React components with variants
-- **Workflows**: Access project workflows with live previews
-- **Terminal**: Use embedded Claude Code for development assistance
-- **Settings**: Configure preferences, templates, and directories
+### P5: Available Templates
+**P5.1**: `react-basic` - Standard create-react-app with custom components
+**P5.2**: `react-typescript` - TypeScript template with enhanced components  
+**P5.3**: `react-storybook` - Enhanced component library with Storybook integration
+**P5.4**: `react-storybook-tailwind` - Above plus Tailwind CSS (future enhancement)
 
-### Terminal Features
-- **Shell Access**: Full bash/PowerShell in project directory
-- **Claude Code**: Type `claude` for AI-powered development assistance
-- **Persistence**: Sessions continue across tab switches
-- **Controls**: Clear and restart functionality
-
-## Templates
-
-### Available Templates
-- **react-basic**: Standard create-react-app with custom components
-- **react-typescript**: TypeScript template with enhanced components
-- **react-storybook**: Enhanced component library with Storybook integration
-- **react-storybook-tailwind**: Above plus Tailwind CSS (future)
-
-### Custom Component System
-Templates include custom components with variant systems:
+### P6: Component Variant System
+Templates include components with variant definitions:
 ```javascript
 // Components define variants directly in files
 Button.variants = [
@@ -128,18 +100,26 @@ Button.variants = [
 ];
 ```
 
-## Configuration
+## Technical Architecture
 
-### Settings Management
-Access via Settings menu:
-- **General**: Projects directory, default template
-- **Development**: Port ranges, auto-open browser
-- **Advanced**: DevTools, recent projects limit
+### P7: Implementation Principles
+**P7.1**: Pure function implementation for all business logic
+**P7.2**: Immutable data structures with Result types for error handling
+**P7.3**: Secure IPC communication with context isolation enabled
+**P7.4**: Process isolation with proper cleanup and resource management
 
-### Persistence
-- **Projects**: Stored in electron-store backend
-- **Settings**: User preferences survive app restarts
-- **Terminals**: Session state maintained across navigation
+## Troubleshooting
+
+### Common Issues
+**R9.1**: Terminal not working - Ensure node-pty is rebuilt for your Electron version
+**R9.2**: Server won't start - Check port availability (3000-3100 range)
+**R9.3**: Component discovery fails - Verify components follow supported patterns
+**R9.4**: Project creation fails - Check npm/yarn installation and network access
+
+### Debug Mode
+**R10.1**: Enable debug logging in Settings → Advanced
+**R10.2**: Use developer tools (F12) for error inspection
+**R10.3**: Check console logs for detailed error information
 
 ## File Structure
 
@@ -149,60 +129,29 @@ design-tool/
 ├── app.js           # Frontend application logic  
 ├── preload.js       # Secure IPC bridge
 ├── index.html       # Application UI and styling
+├── lib/             # Pure function library
 ├── package.json     # Dependencies and scripts
-├── CLAUDE.md        # Generative Analysis documentation
-└── README.md        # This file
+└── CLAUDE.md        # Generative Analysis specification
 ```
 
 ## Development
 
-### Architecture Principles
-- **Functional Programming**: Pure functions with immutable data
-- **Security First**: No node integration, context isolation enabled
-- **Process Isolation**: Main/renderer separation with secure IPC
-- **Error Recovery**: Comprehensive validation and cleanup
+### Functional Programming Approach
+- **Pure Functions**: All business logic implemented without side effects
+- **Immutable Data**: State updates create new objects rather than mutations
+- **Error Handling**: Result types rather than exceptions for predictable flows
+- **Testability**: Isolated functions enable comprehensive unit testing
 
-### Key Technologies
-- **Electron**: Desktop application framework
-- **create-react-app**: Project scaffolding
-- **xterm.js + node-pty**: Terminal integration
-- **electron-store**: Settings persistence
-
-## Troubleshooting
-
-### Common Issues
-- **Terminal not working**: Ensure node-pty is rebuilt for your Electron version
-- **Port conflicts**: Check port ranges in Settings → Development
-- **Project creation fails**: Verify npm/yarn installation and network access
-
-### Debug Mode
-```bash
-# Start with developer tools
-npm run dev
-
-# View main process logs in terminal
-# View renderer logs in DevTools Console
-```
-
-## Contributing
-
-The Design Tool follows Generative Analysis methodology:
-1. Read `CLAUDE.md` for complete technical documentation
+### Contributing
+1. Read `CLAUDE.md` for complete technical specification
 2. Follow functional programming principles
-3. Maintain pure functions and immutable data patterns
-4. Update documentation for all changes
+3. Update propositions and requirements for all changes
+4. Maintain documentation currency with implementation
 
 ## License
 
 MIT License - See LICENSE file for details
 
-## Support
-
-For issues and feature requests:
-- Check existing GitHub issues
-- Follow troubleshooting guide
-- Review CLAUDE.md technical documentation
-
 ---
 
-**Design Tool v0.1.0** - A complete living design system manager with embedded Claude Code assistance.
+**Design Tool v0.1.0** - Complete React project management with embedded Claude Code assistance following Generative Analysis methodology.
