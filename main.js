@@ -771,6 +771,14 @@ ipcMain.handle('project:create', async (event, projectConfig) => {
       });
       store.set('projects', projects);
       
+      // Auto-install Figma MCP server for all new projects
+      try {
+        await installFigmaMCPForProject(projectPath, projectConfig);
+      } catch (mcpError) {
+        console.warn('⚠️ Figma MCP installation failed (project creation continues):', mcpError.message);
+        // Don't fail project creation if MCP installation fails
+      }
+      
       console.log('✅ Project created and registered:', projectConfig.name);
     }
     
@@ -979,19 +987,74 @@ ipcMain.handle('projects:update', async (event, projectId, updates) => {
 ipcMain.handle('projects:remove', async (event, projectId) => {
   try {
     const projects = store.get('projects', []);
-    const filteredProjects = projects.filter(p => p.id !== projectId);
+    const project = projects.find(p => p.id === projectId);
     
-    if (filteredProjects.length === projects.length) {
+    if (!project) {
       return { success: false, error: 'Project not found' };
     }
+    
+    console.log('🗑️ Deleting project:', project.name, 'at path:', project.path);
     
     // Stop any running dev server for this project
     await stopProjectServer(projectId);
     
+    // Clean up project servers state
+    if (projectServers.has(projectId)) {
+      projectServers.delete(projectId);
+    }
+    
+    // Clean up any running terminal sessions for this project
+    for (const [pid, terminalInfo] of terminalProcesses.entries()) {
+      if (terminalInfo.context && terminalInfo.context.projectId === projectId) {
+        console.log('🖥️ Cleaning up terminal session for deleted project:', pid);
+        try {
+          terminalInfo.process.kill();
+          terminalProcesses.delete(pid);
+          terminalSessions.delete(pid);
+        } catch (terminalError) {
+          console.warn('Failed to cleanup terminal session:', terminalError.message);
+        }
+      }
+    }
+    
+    // Delete project files from disk (including node_modules and all subdirectories)
+    try {
+      if (project.path && await fs.access(project.path).then(() => true).catch(() => false)) {
+        console.log('🗂️ Deleting entire project directory (including node_modules):', project.path);
+        
+        // Use fs.rm with recursive and force options for complete deletion
+        await fs.rm(project.path, { 
+          recursive: true,   // Delete directories and their contents recursively
+          force: true        // Ignore nonexistent files and directories
+        });
+        
+        console.log('✅ Project directory completely deleted (including node_modules)');
+      } else {
+        console.log('⚠️ Project directory not found or already deleted:', project.path);
+      }
+    } catch (fileError) {
+      console.error('❌ Failed to delete project files:', fileError);
+      
+      // If fs.rm fails, try the older fs.rmdir method as fallback
+      try {
+        console.log('🔄 Attempting fallback deletion method...');
+        await fs.rmdir(project.path, { recursive: true });
+        console.log('✅ Project directory deleted using fallback method');
+      } catch (fallbackError) {
+        console.error('❌ Fallback deletion also failed:', fallbackError);
+        // Continue with registry removal even if file deletion fails completely
+      }
+    }
+    
+    // Remove from project registry
+    const filteredProjects = projects.filter(p => p.id !== projectId);
     store.set('projects', filteredProjects);
+    
+    console.log('✅ Project removed from registry:', projectId);
     
     return { success: true };
   } catch (error) {
+    console.error('❌ Project removal failed:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1100,7 +1163,7 @@ ipcMain.handle('project:start-server', async (event, projectId) => {
     // Check if server is already running
     if (projectServers.has(projectId)) {
       const serverInfo = projectServers.get(projectId);
-      if (serverInfo.status === 'running') {
+      if (serverInfo.status === 'ready') {
         return { success: true, port: serverInfo.port, url: `http://localhost:${serverInfo.port}` };
       }
     }
@@ -1132,7 +1195,7 @@ ipcMain.handle('project:get-server-status', async (event, projectId) => {
         success: true, 
         status: serverInfo.status,
         port: serverInfo.port,
-        url: serverInfo.status === 'running' ? `http://localhost:${serverInfo.port}` : null
+        url: serverInfo.status === 'ready' ? `http://localhost:${serverInfo.port}` : null
       };
     }
     
@@ -1202,6 +1265,47 @@ async function executeProjectCreation(projectConfig, projectPath, plan) {
   }
 }
 
+/**
+ * Install Figma MCP server for a project (ASYNC FUNCTION)
+ * @param {string} projectPath - Path to project directory
+ * @param {Object} projectConfig - Project configuration
+ * @returns {Promise<Object>} Result object with success status
+ */
+async function installFigmaMCPForProject(projectPath, projectConfig) {
+  try {
+    console.log('🎨 Installing Figma MCP server for project:', projectConfig.name);
+    
+    // Create .mcp.json file in project directory with Figma MCP server configuration
+    const mcpConfig = {
+      mcpServers: {
+        "figma-dev-mode-mcp-server": {
+          type: "sse",
+          url: "http://127.0.0.1:3845/sse"
+        }
+      }
+    };
+    
+    const mcpConfigPath = path.join(projectPath, '.mcp.json');
+    await fs.writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    
+    console.log('✅ Figma MCP server configured for project:', projectConfig.name);
+    
+    // Send progress update to frontend
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('project:progress', {
+        projectId: projectConfig.id,
+        mcpInstalled: true,
+        message: 'Figma MCP server configured'
+      });
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Failed to install Figma MCP server:', error);
+    throw new Error(`Figma MCP installation failed: ${error.message}`);
+  }
+}
+
 async function createProjectStructure(projectConfig, projectPath) {
   // Validate path
   const pathValidation = validateProjectPath(projectPath);
@@ -1239,9 +1343,13 @@ async function createProjectStructure(projectConfig, projectPath) {
         // Add our custom components with variant system
         try {
           await addCustomComponents(projectPath, projectConfig.templateId);
+          
+          // Setup Storybook for ALL templates to enable real component previews
+          await setupStorybook(projectPath, projectConfig.templateId);
+          
           resolve({ success: true, output });
         } catch (error) {
-          reject(new Error(`Failed to add custom components: ${error.message}`));
+          reject(new Error(`Failed to add custom components or setup Storybook: ${error.message}`));
         }
       } else {
         reject(new Error(`create-react-app failed with code ${code}: ${errorOutput}`));
@@ -1368,6 +1476,256 @@ async function addCustomComponents(projectPath, templateId) {
 }
 
 /**
+ * Setup Storybook for real component previews (ASYNC FUNCTION)
+ * @param {string} projectPath - Path to the generated project
+ * @param {string} templateId - Template ID to determine setup
+ */
+async function setupStorybook(projectPath, templateId) {
+  console.log('📚 Setting up Storybook for real component previews...');
+  
+  try {
+    // Install Storybook
+    await installStorybook(projectPath);
+    
+    // Create Storybook configuration
+    await createStorybookConfig(projectPath);
+    
+    // Generate stories for existing components
+    await generateComponentStories(projectPath);
+    
+    console.log('✅ Storybook setup completed successfully');
+  } catch (error) {
+    console.error('❌ Storybook setup failed:', error.message);
+    // Don't fail the whole project creation if Storybook fails
+    console.log('⚠️ Continuing without Storybook...');
+  }
+}
+
+/**
+ * Install Storybook dependencies (ASYNC FUNCTION)
+ * @param {string} projectPath - Path to the project
+ */
+async function installStorybook(projectPath) {
+  console.log('📦 Installing Storybook...');
+  
+  return new Promise((resolve, reject) => {
+    const npxProcess = spawn('npx', ['storybook@latest', 'init', '--yes'], {
+      cwd: projectPath,
+      stdio: 'pipe'
+    });
+    
+    let output = '';
+    
+    npxProcess.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log('Storybook install:', data.toString());
+    });
+    
+    npxProcess.stderr.on('data', (data) => {
+      output += data.toString();
+      console.log('Storybook stderr:', data.toString());
+    });
+    
+    npxProcess.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ Storybook installed successfully');
+        resolve(output);
+      } else {
+        reject(new Error(`Storybook installation failed with code ${code}`));
+      }
+    });
+  });
+}
+
+/**
+ * Create Storybook configuration for component previews (ASYNC FUNCTION)
+ * @param {string} projectPath - Path to the project
+ */
+async function createStorybookConfig(projectPath) {
+  const storybookPath = path.join(projectPath, '.storybook');
+  
+  // Enhanced main.js config for component discovery
+  const mainConfig = `/** @type { import('@storybook/react-vite').StorybookConfig } */
+const config = {
+  stories: ['../src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
+  addons: [
+    '@storybook/addon-links',
+    '@storybook/addon-essentials',
+    '@storybook/addon-interactions',
+    '@storybook/addon-controls',
+    '@storybook/addon-viewport',
+  ],
+  framework: {
+    name: '@storybook/react-vite',
+    options: {},
+  },
+  typescript: {
+    check: false,
+    reactDocgen: 'react-docgen-typescript',
+    reactDocgenTypescriptOptions: {
+      shouldExtractLiteralValuesFromEnum: true,
+      propFilter: (prop) => (prop.parent ? !/node_modules/.test(prop.parent.fileName) : true),
+    },
+  },
+};
+
+export default config;`;
+
+  // Enhanced preview.js for better component display
+  const previewConfig = `/** @type { import('@storybook/react').Preview } */
+const preview = {
+  parameters: {
+    actions: { argTypesRegex: "^on[A-Z].*" },
+    controls: {
+      matchers: {
+        color: /(background|color)$/i,
+        date: /Date$/,
+      },
+    },
+    backgrounds: {
+      default: 'light',
+      values: [
+        { name: 'light', value: '#ffffff' },
+        { name: 'dark', value: '#1a1a1a' },
+        { name: 'gray', value: '#f5f5f5' },
+      ],
+    },
+    viewport: {
+      viewports: {
+        responsive: { name: 'Responsive', styles: { width: '100%', height: '100%' } },
+        mobile: { name: 'Mobile', styles: { width: '375px', height: '667px' } },
+        tablet: { name: 'Tablet', styles: { width: '768px', height: '1024px' } },
+        desktop: { name: 'Desktop', styles: { width: '1024px', height: '768px' } },
+      },
+    },
+  },
+};
+
+export default preview;`;
+
+  await fs.writeFile(path.join(storybookPath, 'main.js'), mainConfig);
+  await fs.writeFile(path.join(storybookPath, 'preview.js'), previewConfig);
+}
+
+/**
+ * Generate Storybook stories for all components (ASYNC FUNCTION)
+ * @param {string} projectPath - Path to the project
+ */
+async function generateComponentStories(projectPath) {
+  const componentsPath = path.join(projectPath, 'src', 'components');
+  
+  // Generate Button.stories.js
+  const buttonStory = `import { Button } from './Button';
+
+export default {
+  title: 'Components/Button',
+  component: Button,
+  parameters: {
+    layout: 'centered',
+  },
+  tags: ['autodocs'],
+  argTypes: {
+    variant: {
+      control: { type: 'select' },
+      options: ['primary', 'secondary', 'danger', 'outline'],
+    },
+    size: {
+      control: { type: 'select' },
+      options: ['small', 'medium', 'large'],
+    },
+    disabled: {
+      control: 'boolean',
+    },
+    children: {
+      control: 'text',
+    },
+  },
+};
+
+// Auto-generated stories from Button.variants
+export const Primary = {
+  args: { variant: 'primary', children: 'Primary Button' },
+};
+
+export const Secondary = {
+  args: { variant: 'secondary', children: 'Secondary Button' },
+};
+
+export const Danger = {
+  args: { variant: 'danger', children: 'Delete' },
+};
+
+export const Outline = {
+  args: { variant: 'outline', children: 'Outline' },
+};
+
+export const Small = {
+  args: { size: 'small', children: 'Small' },
+};
+
+export const Large = {
+  args: { size: 'large', children: 'Large' },
+};
+
+export const Disabled = {
+  args: { disabled: true, children: 'Disabled' },
+};`;
+
+  await fs.writeFile(path.join(componentsPath, 'Button.stories.js'), buttonStory);
+
+  // Generate Card.stories.js if Card component exists
+  try {
+    await fs.access(path.join(componentsPath, 'Card.jsx'));
+    
+    const cardStory = `import { Card } from './Card';
+
+export default {
+  title: 'Components/Card',
+  component: Card,
+  parameters: {
+    layout: 'centered',
+  },
+  tags: ['autodocs'],
+  argTypes: {
+    variant: {
+      control: { type: 'select' },
+      options: ['default', 'elevated', 'outlined'],
+    },
+    title: {
+      control: 'text',
+    },
+    children: {
+      control: 'text',
+    },
+  },
+};
+
+export const Default = {
+  args: { title: 'Default Card', children: 'This is a default card with standard styling.' },
+};
+
+export const Elevated = {
+  args: { variant: 'elevated', title: 'Elevated Card', children: 'This card has enhanced shadow for prominence.' },
+};
+
+export const Outlined = {
+  args: { variant: 'outlined', title: 'Outlined Card', children: 'This card uses borders instead of shadows.' },
+};
+
+export const WithLongContent = {
+  args: { 
+    title: 'Card with Long Content', 
+    children: 'This is a card with much longer content to demonstrate how the card handles different amounts of text. It should expand appropriately while maintaining good typography and spacing.' 
+  },
+};`;
+
+    await fs.writeFile(path.join(componentsPath, 'Card.stories.js'), cardStory);
+  } catch (error) {
+    // Card component doesn't exist, skip
+  }
+}
+
+/**
  * Generate Button component with custom variant system (PURE FUNCTION)
  * @returns {string} Button component code with variants
  */
@@ -1483,11 +1841,17 @@ export default Card;`;
  */
 async function startProjectServer(project) {
   try {
-    // Check if project already had a server with a specific port
-    let preferredPort = null;
+    // Stop any existing server first to ensure clean state
     if (projectServers.has(project.id)) {
-      preferredPort = projectServers.get(project.id).port;
+      console.log(`🔄 Stopping existing server for project ${project.name} before restart`);
+      await stopProjectServer(project.id);
+      
+      // Wait a bit more to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
+    
+    // Find available port
+    let preferredPort = null;
     
     // Find available port (now async), preferring the old port if available
     const port = await findAvailablePort(preferredPort);
@@ -1528,27 +1892,38 @@ async function startProjectServer(project) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (!serverReady) {
+          console.error(`⏱️ Timeout: React dev server for ${project.name} failed to start within 45 seconds`);
           serverInfo.status = 'failed';
-          reject(new Error('React dev server failed to start within 30 seconds'));
+          // Clean up on timeout
+          usedPorts.delete(port);
+          projectServers.delete(project.id);
+          if (serverProcess && !serverProcess.killed) {
+            serverProcess.kill('SIGKILL');
+          }
+          reject(new Error('React dev server failed to start within 45 seconds'));
         }
-      }, 30000);
+      }, 45000); // Increased timeout to 45 seconds
       
       serverProcess.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`[${project.name}] React dev server:`, output.trim());
         
-        // Check if server is ready
-        if (output.includes('webpack compiled') || output.includes('compiled successfully') || output.includes(`localhost:${port}`)) {
+        // Check if server is ready - improved detection
+        if (output.includes('webpack compiled') || output.includes('compiled successfully') || 
+            output.includes(`localhost:${port}`) || output.includes('Development server') ||
+            output.includes('Local:') || output.includes('On Your Network:') ||
+            (output.includes('webpack') && output.includes('compiled'))) {
           if (!serverReady) {
             serverReady = true;
-            serverInfo.status = 'running';
+            serverInfo.status = 'ready';
+            serverInfo.url = `http://localhost:${port}`;
             clearTimeout(timeout);
             console.log(`✅ React dev server ready at http://localhost:${port}`);
             resolve({ 
               success: true, 
               port: port, 
               url: `http://localhost:${port}`,
-              status: 'running'
+              status: 'ready'
             });
           }
         }
@@ -1557,6 +1932,16 @@ async function startProjectServer(project) {
       serverProcess.stderr.on('data', (data) => {
         const error = data.toString();
         console.warn(`[${project.name}] React dev server warning:`, error.trim());
+        
+        // Check for port conflicts in stderr
+        if (error.includes('Something is already running on port') || error.includes('EADDRINUSE') || error.includes('address already in use')) {
+          console.error(`🚫 Port ${port} conflict detected for ${project.name}`);
+          clearTimeout(timeout);
+          usedPorts.delete(port);
+          projectServers.delete(project.id);
+          serverInfo.status = 'failed';
+          reject(new Error(`Port ${port} is already in use. Please close any running servers and try again.`));
+        }
       });
       
       serverProcess.on('close', (code) => {
@@ -1619,43 +2004,55 @@ async function stopProjectServer(projectId) {
       // Mark as stopping to coordinate with close handler
       serverInfo.status = 'stopping';
       
-      // Wait for process to actually close before cleanup
-      serverInfo.process.on('close', () => {
+      let cleanupDone = false;
+      
+      const doCleanup = () => {
+        if (cleanupDone) return;
+        cleanupDone = true;
+        
         console.log(`🧹 Process closed, cleaning up port ${serverInfo.port} for project ${projectId}`);
         
+        if (serverInfo.port) {
+          usedPorts.delete(serverInfo.port);
+        }
+        projectServers.delete(projectId);
+        console.log(`✅ Stopped React dev server for project ${projectId}`);
+        resolve({ success: true });
+      };
+      
+      // Wait for process to actually close before cleanup
+      serverInfo.process.on('close', () => {
         // Give webpack-dev-server a moment to fully release the port
-        setTimeout(() => {
-          if (serverInfo.port) {
-            usedPorts.delete(serverInfo.port);
-          }
-          projectServers.delete(projectId);
-          console.log(`✅ Stopped React dev server for project ${projectId}`);
-          resolve({ success: true });
-        }, 1000); // 1 second delay to ensure port is fully released
+        setTimeout(doCleanup, 2000); // Increased to 2 seconds for better port cleanup
       });
       
-      // Kill the process
-      serverInfo.process.kill('SIGTERM');
+      // Kill the process - try SIGINT first (graceful), then SIGTERM
+      console.log(`🛑 Sending SIGINT to React dev server for project ${projectId}`);
+      serverInfo.process.kill('SIGINT');
       
-      // Force kill after 5 seconds if still running
+      // Escalate to SIGTERM after 3 seconds
       setTimeout(() => {
-        if (!serverInfo.process.killed) {
+        if (!serverInfo.process.killed && !cleanupDone) {
+          console.log(`🔶 Escalating to SIGTERM for project ${projectId}`);
+          serverInfo.process.kill('SIGTERM');
+        }
+      }, 3000);
+      
+      // Force kill after 8 seconds if still running
+      setTimeout(() => {
+        if (!serverInfo.process.killed && !cleanupDone) {
           console.log(`🔥 Force killing React dev server for project ${projectId}`);
           serverInfo.process.kill('SIGKILL');
         }
-      }, 5000);
+      }, 8000);
       
       // Fallback timeout in case process doesn't emit close event
       setTimeout(() => {
-        if (projectServers.has(projectId)) {
+        if (!cleanupDone) {
           console.log(`⚠️ Timeout waiting for process close, force cleaning up project ${projectId}`);
-          if (serverInfo.port) {
-            usedPorts.delete(serverInfo.port);
-          }
-          projectServers.delete(projectId);
-          resolve({ success: true });
+          doCleanup();
         }
-      }, 10000);
+      }, 15000); // Increased timeout for better reliability
     });
     
   } catch (error) {
@@ -1676,13 +2073,22 @@ async function findAvailablePort(preferredPort = null) {
     return new Promise((resolve) => {
       const server = net.createServer();
       
+      // Set timeout for port check
+      const timeout = setTimeout(() => {
+        server.close();
+        resolve(false);
+      }, 2000);
+      
       server.listen(port, () => {
+        clearTimeout(timeout);
         server.close(() => {
           resolve(true);
         });
       });
       
-      server.on('error', () => {
+      server.on('error', (err) => {
+        clearTimeout(timeout);
+        console.log(`🚫 Port ${port} check failed:`, err.code);
         resolve(false);
       });
     });

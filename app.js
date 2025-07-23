@@ -1743,7 +1743,7 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
                     document.querySelectorAll('.component-nav-item').forEach(item => {
                         item.classList.remove('active');
                     });
-                    document.querySelector(\`[data-component="\${componentName}"]\`).classList.add('active');
+                    document.querySelector('[data-component="' + componentName + '"]').classList.add('active');
                     
                     // Update main content
                     const component = components.find(c => c.name === componentName);
@@ -1762,23 +1762,20 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
                         ? component.variants.map(variant => generateVariantCard(component, variant)).join('')
                         : generateVariantCard(component, { name: 'Default' });
                     
-                    return \`
-                        <div class="main-header">
-                            <h1 class="component-name">\${component.name}</h1>
-                            <div class="component-path">\${relativePath}</div>
-                        </div>
-                        <div class="main-content">
-                            <div class="variants-section">
-                                <h2 class="section-title">
-                                    ✨ Variants
-                                    (\${component.hasVariants ? component.variants.length : 1})
-                                </h2>
-                                <div class="variants-grid">
-                                    \${variantsHTML}
-                                </div>
-                            </div>
-                        </div>
-                    \`;
+                    return '<div class="main-header">' +
+                        '<h1 class="component-name">' + component.name + '</h1>' +
+                        '<div class="component-path">' + relativePath + '</div>' +
+                        '</div>' +
+                        '<div class="main-content">' +
+                            '<div class="variants-section">' +
+                                '<h2 class="section-title">' +
+                                    '✨ Variants (' + (component.hasVariants ? component.variants.length : 1) + ')' +
+                                '</h2>' +
+                                '<div class="variants-grid">' +
+                                    variantsHTML +
+                                '</div>' +
+                            '</div>' +
+                        '</div>';
                 }
                 
                 // Generate individual variant card with isolated component preview
@@ -1786,141 +1783,139 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
                     // Always show isolated component preview (like Storybook)
                     const componentStoryUrl = generateComponentStoryUrl(component, variant);
                     
-                    return \`
-                        <div class="variant-card" data-variant="\${variant.name}">
-                            <div class="variant-header">
-                                <h3 class="variant-name">\${variant.name}</h3>
-                                <div class="variant-status">
-                                    <span class="status-dot status-ready"></span>
-                                    <span>Component Preview</span>
-                                </div>
-                            </div>
-                            <div class="variant-preview live-preview">
-                                <iframe 
-                                    src="\${componentStoryUrl}" 
-                                    class="component-iframe"
-                                    frameborder="0"
-                                    sandbox="allow-scripts allow-same-origin"
-                                    loading="lazy">
-                                </iframe>
-                                <div class="preview-overlay">
-                                    <button class="open-in-new" onclick="window.open('\${componentStoryUrl}', '_blank')" title="Open in new window">
-                                        ⤴️
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    \`;
+                    return '<div class="variant-card" data-variant="' + variant.name + '">' +
+                        '<div class="variant-header">' +
+                            '<h3 class="variant-name">' + variant.name + '</h3>' +
+                            '<div class="variant-status">' +
+                                '<span class="status-dot status-ready"></span>' +
+                                '<span>Component Preview</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="variant-preview live-preview">' +
+                            '<iframe ' +
+                                'src="' + componentStoryUrl + '" ' +
+                                'class="component-iframe" ' +
+                                'frameborder="0" ' +
+                                'sandbox="allow-scripts allow-same-origin" ' +
+                                'loading="lazy">' +
+                            '</iframe>' +
+                            '<div class="preview-overlay">' +
+                                '<button class="open-in-new" onclick="window.open(\'' + componentStoryUrl + '\', \'_blank\')" title="Open in new window">' +
+                                    '⤴️' +
+                                '</button>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
                 }
                 
                 // Generate component story URL for isolated rendering
                 function generateComponentStoryUrl(component, variant) {
                     // Create an isolated component preview using data: URL with complete HTML
                     const componentPreviewHTML = generateIsolatedComponentHTML(component, variant);
-                    return \`data:text/html;charset=utf-8,\${encodeURIComponent(componentPreviewHTML)}\`;
+                    return 'data:text/html;charset=utf-8,' + encodeURIComponent(componentPreviewHTML);
                 }
                 
-                // Generate isolated component HTML (moved from global scope to iframe scope)
+                // Generate isolated component HTML with real React rendering (moved from global scope to iframe scope)
                 function generateIsolatedComponentHTML(component, variant) {
                     const variantProps = variant.props || {};
                     const propsString = Object.entries(variantProps)
-                        .map(([key, value]) => \`\${key}={\${JSON.stringify(value)}}\`)
+                        .map(([key, value]) => key + '={' + JSON.stringify(value) + '}')
                         .join(' ');
                     
-                    return \`
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <title>\${component.name} - \${variant.name}</title>
-                            <style>
-                                * { box-sizing: border-box; }
-                                body { 
-                                    margin: 0; 
-                                    padding: 2rem;
-                                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-                                    background: #ffffff;
-                                    color: #333;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    min-height: 100vh;
-                                }
-                                .preview-container {
-                                    background: white;
-                                    border-radius: 8px;
-                                    padding: 2rem;
-                                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-                                    max-width: 600px;
-                                    width: 100%;
-                                }
-                                .component-info {
-                                    text-align: center;
-                                    margin-bottom: 2rem;
-                                    padding-bottom: 1rem;
-                                    border-bottom: 1px solid #eee;
-                                }
-                                .component-name {
-                                    font-size: 1.5rem;
-                                    font-weight: 600;
-                                    margin: 0 0 0.5rem 0;
-                                    color: #667eea;
-                                }
-                                .variant-name {
-                                    font-size: 1rem;
-                                    color: #666;
-                                    margin: 0;
-                                }
-                                .component-preview {
-                                    text-align: center;
-                                    padding: 2rem;
-                                    background: #f8f9fa;
-                                    border-radius: 4px;
-                                    margin-bottom: 1rem;
-                                }
-                                .component-code {
-                                    background: #f1f3f4;
-                                    padding: 1rem;
-                                    border-radius: 4px;
-                                    font-family: monospace;
-                                    font-size: 0.9rem;
-                                    color: #333;
-                                    overflow-x: auto;
-                                }
-                                .props-info {
-                                    margin-top: 1rem;
-                                    font-size: 0.85rem;
-                                    color: #666;
-                                }
-                            </style>
-                        </head>
-                        <body>
-                            <div class="preview-container">
-                                <div class="component-info">
-                                    <h1 class="component-name">\${component.name}</h1>
-                                    <p class="variant-name">Variant: \${variant.name}</p>
-                                </div>
-                                
-                                <div class="component-preview">
-                                    <div style="font-size: 1.2rem; color: #667eea; margin-bottom: 1rem;">
-                                        📦 Component Preview
-                                    </div>
-                                    <div style="font-size: 0.9rem; color: #666;">
-                                        This is a mock preview of the <strong>\${component.name}</strong> component.
-                                        <br>In a full implementation, this would render the actual React component.
-                                    </div>
-                                </div>
-                                
-                                <div class="component-code">
-                                    &lt;\${component.name} \${propsString} /&gt;
-                                </div>
-                                
-                                <div class="props-info">
-                                    <strong>Props:</strong> \${Object.keys(variantProps).length > 0 ? JSON.stringify(variantProps, null, 2) : 'None'}
-                                </div>
-                            </div>
-                        </body>
-                        </html>
-                    \`;
+                    // Check if server is running for live preview
+                    const hasServerRunning = serverStatus && serverStatus.success && serverStatus.status === 'running';
+                    const serverUrl = hasServerRunning ? serverStatus.url : null;
+                    
+                    // Use Storybook for real component previews
+                    return generateStorybookComponentHTML(component, variant, hasServerRunning, serverUrl);
+                }
+                
+                // Generate Storybook component HTML for real component previews
+                function generateStorybookComponentHTML(component, variant, hasServerRunning, serverUrl) {
+                    const variantProps = variant.props || {};
+                    const propsString = Object.entries(variantProps)
+                        .map(([key, value]) => key + '={' + JSON.stringify(value) + '}')
+                        .join(' ');
+                    
+                    // Generate Storybook story URL for the component variant
+                    const storyId = 'components-' + component.name.toLowerCase() + '--' + (variant.name || 'default').toLowerCase().replace(/\s+/g, '-');
+                    const storybookUrl = hasServerRunning && serverUrl 
+                        ? serverUrl.replace(':3000', ':6006') + '/iframe.html?id=' + storyId + '&viewMode=story'
+                        : null;
+                    
+                    if (storybookUrl) {
+                        // Show real Storybook component preview
+                        return generateRealStorybookHTML(component, variant, storybookUrl, propsString);
+                    } else {
+                        // Show startup message with instructions
+                        return generateStorybookStartupHTML(component, variant, propsString);
+                    }
+                }
+                
+                // Generate real Storybook iframe preview
+                function generateRealStorybookHTML(component, variant, storybookUrl, propsString) {
+                    return '<!DOCTYPE html>' +
+                        '<html>' +
+                        '<head>' +
+                            '<title>' + component.name + ' - ' + variant.name + ' (Storybook)</title>' +
+                            '<style>' +
+                                '* { box-sizing: border-box; }' +
+                                'body { margin: 0; padding: 1rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif; background: #ffffff; }' +
+                                '.preview-container { max-width: 600px; margin: 0 auto; }' +
+                                '.storybook-header { text-align: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #eee; }' +
+                                '.component-name { font-size: 1.2rem; font-weight: 600; margin: 0; color: #333; }' +
+                                '.storybook-badge { background: #ff4785; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; margin-left: 0.5rem; }' +
+                                '.storybook-frame { width: 100%; height: 400px; border: 1px solid #eee; border-radius: 6px; background: white; }' +
+                                '.component-code { background: #f8f9fa; padding: 0.75rem; border-radius: 4px; font-family: monospace; font-size: 0.8rem; margin-top: 1rem; color: #666; }' +
+                            '</style>' +
+                        '</head>' +
+                        '<body>' +
+                            '<div class="preview-container">' +
+                                '<div class="storybook-header">' +
+                                    '<div class="component-name">' + component.name + ' - ' + variant.name + '<span class="storybook-badge">STORYBOOK</span></div>' +
+                                '</div>' +
+                                '<iframe src="' + storybookUrl + '" class="storybook-frame" frameborder="0"></iframe>' +
+                                '<div class="component-code">&lt;' + component.name + ' ' + propsString + ' /&gt;</div>' +
+                            '</div>' +
+                        '</body>' +
+                        '</html>';
+                }
+                
+                // Generate startup instructions when Storybook isn't running
+                function generateStorybookStartupHTML(component, variant, propsString) {
+                    return '<!DOCTYPE html>' +
+                        '<html>' +
+                        '<head>' +
+                            '<title>' + component.name + ' - ' + variant.name + '</title>' +
+                            '<style>' +
+                                '* { box-sizing: border-box; }' +
+                                'body { margin: 0; padding: 2rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif; background: #f8f9fa; }' +
+                                '.startup-container { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; padding: 2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }' +
+                                '.storybook-logo { font-size: 3rem; margin-bottom: 1rem; }' +
+                                '.component-name { font-size: 1.3rem; font-weight: 600; margin-bottom: 0.5rem; color: #333; }' +
+                                '.variant-name { color: #666; margin-bottom: 2rem; }' +
+                                '.instructions { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #856404; }' +
+                                '.start-btn { background: #ff4785; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 500; cursor: pointer; transition: background 0.2s; }' +
+                                '.start-btn:hover { background: #e63946; }' +
+                                '.component-code { background: #f1f3f4; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 0.9rem; margin-top: 1.5rem; color: #666; }' +
+                            '</style>' +
+                        '</head>' +
+                        '<body>' +
+                            '<div class="startup-container">' +
+                                '<div class="storybook-logo">📚</div>' +
+                                '<div class="component-name">' + component.name + '</div>' +
+                                '<div class="variant-name">Variant: ' + (variant.name || 'Default') + '</div>' +
+                                '<div class="instructions">' +
+                                    '<strong>Storybook Ready!</strong><br>' +
+                                    'This project includes Storybook for real component previews. Start the development server to see live components.' +
+                                '</div>' +
+                                '<button class="start-btn" onclick="window.parent.postMessage({action: \'startServer\'}, \'*\')">' +
+                                    '🚀 Start Dev Server' +
+                                '</button>' +
+                                '<div class="component-code">&lt;' + component.name + ' ' + propsString + ' /&gt;</div>' +
+                            '</div>' +
+                        '</body>' +
+                        '</html>';
                 }
                 
                 
@@ -2078,112 +2073,97 @@ function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
 }
 
 /**
- * Generate standalone HTML for isolated component preview (PURE FUNCTION)
+ * Generate standalone HTML for isolated component preview with live rendering support (PURE FUNCTION)
  * This function exists in both global scope and iframe scope to support different call paths
  * @param {Object} component - Component object
- * @param {Object} variant - Variant object  
+ * @param {Object} variant - Variant object
+ * @param {Object} serverStatus - Optional server status for live preview support
  * @returns {string} Complete HTML document for component preview
  */
-function generateIsolatedComponentHTML(component, variant) {
+function generateIsolatedComponentHTML(component, variant, serverStatus = null) {
     const variantProps = variant.props || {};
     const propsString = Object.entries(variantProps)
         .map(([key, value]) => `${key}={${JSON.stringify(value)}}`)
         .join(' ');
     
-    return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>${component.name} - ${variant.name}</title>
-            <style>
-                * { box-sizing: border-box; }
-                body { 
-                    margin: 0; 
-                    padding: 2rem;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-                    background: #ffffff;
-                    color: #333;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 100vh;
-                }
-                .preview-container {
-                    background: white;
-                    border-radius: 8px;
-                    padding: 2rem;
-                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-                    max-width: 600px;
-                    width: 100%;
-                }
-                .component-info {
-                    text-align: center;
-                    margin-bottom: 2rem;
-                    padding-bottom: 1rem;
-                    border-bottom: 1px solid #eee;
-                }
-                .component-name {
-                    font-size: 1.5rem;
-                    font-weight: 600;
-                    margin: 0 0 0.5rem 0;
-                    color: #667eea;
-                }
-                .variant-name {
-                    font-size: 1rem;
-                    color: #666;
-                    margin: 0;
-                }
-                .component-preview {
-                    text-align: center;
-                    padding: 2rem;
-                    background: #f8f9fa;
-                    border-radius: 4px;
-                    margin-bottom: 1rem;
-                }
-                .component-code {
-                    background: #f1f3f4;
-                    padding: 1rem;
-                    border-radius: 4px;
-                    font-family: monospace;
-                    font-size: 0.9rem;
-                    color: #333;
-                    overflow-x: auto;
-                }
-                .props-info {
-                    margin-top: 1rem;
-                    font-size: 0.85rem;
-                    color: #666;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="preview-container">
-                <div class="component-info">
-                    <h1 class="component-name">${component.name}</h1>
-                    <p class="variant-name">Variant: ${variant.name}</p>
+    // Check if server is running for live preview
+    const hasServerRunning = serverStatus && serverStatus.success && serverStatus.status === 'running';
+    const serverUrl = hasServerRunning ? serverStatus.url : null;
+    
+    // Use Storybook for real component previews (global scope version)
+    return generateGlobalStorybookComponentHTML(component, variant, hasServerRunning, serverUrl, propsString);
+}
+
+// Generate Storybook component HTML for real component previews (global scope)
+function generateGlobalStorybookComponentHTML(component, variant, hasServerRunning, serverUrl, propsString) {
+    // Generate Storybook story URL for the component variant
+    const storyId = 'components-' + component.name.toLowerCase() + '--' + (variant.name || 'default').toLowerCase().replace(/\s+/g, '-');
+    const storybookUrl = hasServerRunning && serverUrl 
+        ? serverUrl.replace(':3000', ':6006') + '/iframe.html?id=' + storyId + '&viewMode=story'
+        : null;
+    
+    if (storybookUrl) {
+        // Show real Storybook component preview
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${component.name} - ${variant.name} (Storybook)</title>
+                <style>
+                    * { box-sizing: border-box; }
+                    body { margin: 0; padding: 1rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #ffffff; }
+                    .preview-container { max-width: 600px; margin: 0 auto; }
+                    .storybook-header { text-align: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #eee; }
+                    .component-name { font-size: 1.2rem; font-weight: 600; margin: 0; color: #333; }
+                    .storybook-badge { background: #ff4785; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; margin-left: 0.5rem; }
+                    .storybook-frame { width: 100%; height: 400px; border: 1px solid #eee; border-radius: 6px; background: white; }
+                    .component-code { background: #f8f9fa; padding: 0.75rem; border-radius: 4px; font-family: monospace; font-size: 0.8rem; margin-top: 1rem; color: #666; }
+                </style>
+            </head>
+            <body>
+                <div class="storybook-header">
+                    <div class="component-name">${component.name} - ${variant.name}<span class="storybook-badge">STORYBOOK</span></div>
                 </div>
-                
-                <div class="component-preview">
-                    <div style="font-size: 1.2rem; color: #667eea; margin-bottom: 1rem;">
-                        📦 Component Preview
+                <iframe src="${storybookUrl}" class="storybook-frame" frameborder="0"></iframe>
+                <div class="component-code">&lt;${component.name} ${propsString} /&gt;</div>
+            </body>
+            </html>
+        `;
+    } else {
+        // Show startup message with instructions
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${component.name} - ${variant.name}</title>
+                <style>
+                    * { box-sizing: border-box; }
+                    body { margin: 0; padding: 2rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #f8f9fa; }
+                    .startup-container { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; padding: 2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }
+                    .storybook-logo { font-size: 3rem; margin-bottom: 1rem; }
+                    .component-name { font-size: 1.3rem; font-weight: 600; margin-bottom: 0.5rem; color: #333; }
+                    .variant-name { color: #666; margin-bottom: 2rem; }
+                    .instructions { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #856404; }
+                    .start-btn { background: #ff4785; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 500; cursor: pointer; transition: background 0.2s; }
+                    .start-btn:hover { background: #e63946; }
+                    .component-code { background: #f1f3f4; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 0.9rem; margin-top: 1.5rem; color: #666; }
+                </style>
+            </head>
+            <body>
+                <div class="startup-container">
+                    <div class="storybook-logo">📚</div>
+                    <div class="component-name">${component.name}</div>
+                    <div class="variant-name">Variant: ${variant.name || 'Default'}</div>
+                    <div class="instructions">
+                        <strong>Storybook Ready!</strong><br>
+                        This project includes Storybook for real component previews. Start the development server to see live components.
                     </div>
-                    <div style="font-size: 0.9rem; color: #666;">
-                        This is a mock preview of the <strong>${component.name}</strong> component.
-                        <br>In a full implementation, this would render the actual React component.
-                    </div>
+                    <div class="component-code">&lt;${component.name} ${propsString} /&gt;</div>
                 </div>
-                
-                <div class="component-code">
-                    &lt;${component.name} ${propsString} /&gt;
-                </div>
-                
-                <div class="props-info">
-                    <strong>Props:</strong> ${Object.keys(variantProps).length > 0 ? JSON.stringify(variantProps, null, 2) : 'None'}
-                </div>
-            </div>
-        </body>
-        </html>
-    `;
+            </body>
+            </html>
+        `;
+    }
 }
 
 /**
@@ -2282,8 +2262,8 @@ function generateComponentVariantsView(component, serverStatus) {
  * @returns {string} HTML for variant card
  */
 function generateVariantCardHTML(component, variant, serverStatus) {
-    // Always show isolated component preview (like Storybook)
-    const componentPreviewHTML = generateIsolatedComponentHTML(component, variant);
+    // Always show isolated component preview (like Storybook) with server status for live rendering
+    const componentPreviewHTML = generateIsolatedComponentHTML(component, variant, serverStatus);
     const componentStoryUrl = `data:text/html;charset=utf-8,${encodeURIComponent(componentPreviewHTML)}`;
     
     return `
