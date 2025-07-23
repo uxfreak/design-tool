@@ -364,6 +364,73 @@ The Design Tool is a comprehensive Electron desktop application that provides:
 - **Terminal Integration**: Embedded Claude Code assistance with persistent sessions
 - **Settings Management**: User-configurable preferences with electron-store persistence
 
+### **Component Library Architecture & Function Call Flow**
+
+The Component Library system operates in two distinct execution contexts that require careful function scoping:
+
+#### **Dual Execution Context Architecture**
+
+**1. Global Scope (Main Application Context)**
+- Functions execute in the main app.js context
+- Used for server-side component discovery and HTML generation
+- Handles `generateComponentLibraryHTML` → `generateComponentVariantsView` → `generateVariantCardHTML`
+
+**2. Iframe Scope (Component Library Viewer Context)**  
+- Functions execute inside the Component Library iframe's script section
+- Used for interactive component navigation and live preview generation
+- Handles `selectComponent` → `generateMainContent` → `generateVariantCard` → `generateComponentStoryUrl`
+
+#### **Function Scoping Solution**
+Due to JavaScript scoping limitations, the `generateIsolatedComponentHTML` function exists in **both contexts**:
+
+```javascript
+// Global Scope (app.js:2087)
+function generateIsolatedComponentHTML(component, variant) {
+  // Used by generateVariantCardHTML for server-side rendering
+}
+
+// Iframe Scope (app.js:1824 - inside iframe <script>)  
+function generateIsolatedComponentHTML(component, variant) {
+  // Used by generateComponentStoryUrl for live preview generation
+}
+```
+
+#### **Complete Function Call Flow**
+
+**Path 1: Server-Side Component Rendering**
+```
+showComponentLibraryContent()
+  ↓
+generateComponentLibraryHTML()
+  ↓
+generateComponentVariantsView()
+  ↓  
+generateVariantCardHTML() [Global Scope]
+  ↓
+generateIsolatedComponentHTML() [Global Scope]
+```
+
+**Path 2: Interactive Component Navigation**
+```
+User clicks component in sidebar
+  ↓
+selectComponent() [Iframe Scope]
+  ↓
+generateMainContent() [Iframe Scope]
+  ↓
+generateVariantCard() [Iframe Scope]
+  ↓
+generateComponentStoryUrl() [Iframe Scope]
+  ↓
+generateIsolatedComponentHTML() [Iframe Scope]
+```
+
+#### **Technical Implementation Notes**
+- **Scope Isolation**: Each context maintains its own function definitions to avoid ReferenceError
+- **Code Duplication**: `generateIsolatedComponentHTML` is intentionally duplicated for reliability
+- **Pure Functions**: All functions follow functional programming principles for testability
+- **Security**: Iframe sandbox ensures isolation while maintaining functionality
+
 ### **System Architecture Diagram**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -434,6 +501,66 @@ The Design Tool is a comprehensive Electron desktop application that provides:
 │ │  Workflow   │                 │   Server    │                │
 │ └─────────────┘                 └─────────────┘                │
 │                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### **Component Library Execution Context Architecture**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              COMPONENT LIBRARY DUAL CONTEXT SYSTEM             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │                    GLOBAL SCOPE CONTEXT                    │ │
+│ │                     (Main App.js)                          │ │
+│ ├─────────────────────────────────────────────────────────────┤ │
+│ │                                                             │ │
+│ │  showComponentLibraryContent()                              │ │
+│ │           ↓                                                 │ │
+│ │  generateComponentLibraryHTML()                             │ │
+│ │           ↓                                                 │ │
+│ │  generateComponentVariantsView()                            │ │
+│ │           ↓                                                 │ │
+│ │  generateVariantCardHTML() ──────► generateIsolatedComponentHTML() │
+│ │                                           [Global Instance] │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│                             │                                   │
+│                             │ Renders iframe with embedded      │
+│                             │ JavaScript functions               │
+│                             ▼                                   │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │                    IFRAME SCOPE CONTEXT                    │ │
+│ │              (Component Library Viewer)                    │ │
+│ ├─────────────────────────────────────────────────────────────┤ │
+│ │                                                             │ │
+│ │  selectComponent() [User Click]                             │ │
+│ │           ↓                                                 │ │
+│ │  generateMainContent()                                      │ │
+│ │           ↓                                                 │ │
+│ │  generateVariantCard()                                      │ │
+│ │           ↓                                                 │ │
+│ │  generateComponentStoryUrl() ──► generateIsolatedComponentHTML() │
+│ │                                           [Iframe Instance] │ │
+│ │                                                             │ │
+│ │  🔒 ISOLATED EXECUTION ENVIRONMENT                         │ │
+│ │     • Separate JavaScript scope                             │ │
+│ │     • No access to global functions                        │ │
+│ │     • Requires local function definitions                  │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │                    FUNCTION DUPLICATION                    │ │
+│ ├─────────────────────────────────────────────────────────────┤ │
+│ │                                                             │ │
+│ │  generateIsolatedComponentHTML()     generateIsolatedComponentHTML() │
+│ │         [Global Scope]                    [Iframe Scope]   │ │
+│ │            ↓                                   ↓            │ │
+│ │  Used by server-side            Used by interactive        │ │
+│ │  component rendering            component navigation       │ │
+│ │                                                             │ │
+│ │  ✅ SOLUTION: Intentional duplication to support both     │ │
+│ │     execution contexts without ReferenceError             │ │
+│ └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -671,5 +798,166 @@ function generatePreviewContent(serverUrl, status) {
 - [ ] **Advanced Templates**: Additional project templates with different frameworks
 - [ ] **Plugin System**: Extensible architecture for third-party integrations
 - [ ] **Cloud Sync**: Optional cloud backup and synchronization features
+
+## Professional Design System Implementation ✅ COMPLETED
+
+**Implementation Status**: All design system components have been successfully implemented and integrated.
+
+### **Design Token Architecture**
+
+**File**: `/design-tokens.css` - Comprehensive design token system with CSS custom properties
+
+**Token Categories Implemented**:
+
+1. **Color System** - Professional semantic color palette
+   - Primary brand colors: `--color-primary` (#667eea), `--color-secondary` (#764ba2)
+   - Surface colors: Four-tier hierarchy from `--color-surface-primary` to `--color-surface-quaternary`
+   - Text hierarchy: Primary, secondary, tertiary text colors
+   - Status colors: Success, warning, error with hover states
+   - Interactive states: Hover, active, disabled, focus
+
+2. **Typography Scale** - Modern type system with Inter font family
+   - Font families: Inter (primary), SF Mono (monospace)
+   - Font sizes: Eight-tier scale from `--text-xs` (12px) to `--text-4xl` (32px)
+   - Font weights: Normal (400), medium (500), semibold (600), bold (700)
+   - Line heights: Tight, normal, relaxed
+
+3. **Spacing System** - Consistent 4px base unit scale
+   - Base units: `--space-1` (4px) through `--space-20` (80px)
+   - Semantic aliases: `--padding-xs` through `--padding-xl`, `--margin-xs` through `--margin-xl`
+
+4. **Border Radius** - Six-tier system from subtle to full rounds
+   - Range: `--radius-sm` (4px) to `--radius-2xl` (16px), plus `--radius-full` (50%)
+
+5. **Shadow System** - Modern elevation hierarchy
+   - Four elevation levels: `--shadow-sm` through `--shadow-xl`
+   - Interactive shadows: `--shadow-hover`, `--shadow-focus`, `--shadow-primary`
+
+6. **Animation Tokens** - Consistent timing and easing
+   - Durations: Fast (0.15s), normal (0.2s), slow (0.3s), slower (0.4s)
+   - Easing functions: Linear, ease-in, ease-out, ease-in-out, spring cubic-bezier
+
+7. **Layout Tokens** - Component and layout sizing
+   - Icon sizes: `--icon-xs` (12px) through `--icon-2xl` (32px)
+   - Component sizes: `--size-xs` (24px) through `--size-xl` (64px)
+   - Z-index scale: Semantic layering from base to tooltip
+
+### **Semantic Aliases System**
+
+**Purpose**: Meaningful abstractions for common UI patterns
+
+**Button Variants**:
+```css
+--btn-primary-bg: var(--gradient-primary);
+--btn-secondary-bg: var(--color-surface-quaternary);
+--btn-danger-bg: var(--color-error);
+```
+
+**Form Controls**:
+```css
+--input-bg: var(--color-surface-primary);
+--input-border: var(--color-border-secondary);
+--input-focus: var(--color-primary);
+```
+
+**Card System**:
+```css
+--card-bg: var(--color-surface-tertiary);
+--card-hover-border: var(--color-primary);
+```
+
+### **Typography Implementation**
+
+**Modern Font Stack**: Inter font family with system font fallbacks
+```css
+--font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+```
+
+**Google Fonts Integration**: Optimized loading with preconnect and font-display: swap
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+```
+
+**Implementation Benefits**:
+- Improved readability with professional typeface
+- Better character spacing and line height optimization
+- Consistent weight scaling across all UI elements
+- Enhanced accessibility with improved contrast ratios
+
+### **Utility Class System**
+
+**Generated Utilities**: CSS classes based on design tokens for rapid development
+
+**Typography Utilities**:
+```css
+.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl
+.font-normal, .font-medium, .font-semibold, .font-bold
+```
+
+**Spacing Utilities**:
+```css
+.p-xs, .p-sm, .p-md, .p-lg, .p-xl
+.m-xs, .m-sm, .m-md, .m-lg, .m-xl
+```
+
+**Border & Shadow Utilities**:
+```css
+.rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full
+.shadow-sm, .shadow-md, .shadow-lg, .shadow-xl
+```
+
+**Animation Utilities**:
+```css
+.transition-fast, .transition-normal, .transition-slow, .transition-spring
+```
+
+### **Complete UI Refactoring**
+
+**Scope**: All 1,800+ lines of CSS systematically refactored to use design tokens
+
+**Components Updated**:
+- Headers, navigation, and controls
+- Terminal sidebar and all interactive elements  
+- Project cards, thumbnails, and metadata
+- Modal dialogs and form components
+- Status indicators and progress bars
+- Buttons, inputs, and interactive states
+
+**Implementation Approach**:
+- Maintained exact visual appearance while switching to token system
+- Preserved all existing functionality and interactions
+- Added semantic meaning through token naming
+- Improved maintainability and consistency
+
+### **Design System Benefits**
+
+**Consistency**: Single source of truth for all design decisions
+**Maintainability**: Changes to tokens propagate throughout the system
+**Scalability**: Easy to add new components following established patterns
+**Developer Experience**: Semantic naming makes CSS more readable and intuitive
+**Performance**: Optimized font loading and efficient CSS custom properties
+**Accessibility**: Improved contrast ratios and consistent interactive states
+
+### **Usage Guidelines**
+
+**Token Usage Priority**:
+1. Use semantic aliases first (e.g., `--btn-primary-bg`)
+2. Use component-specific tokens second (e.g., `--card-bg`)
+3. Use base tokens for custom components (e.g., `--color-surface-tertiary`)
+
+**Best Practices**:
+- Always use design tokens instead of hard-coded values
+- Follow the semantic naming conventions for new components
+- Use utility classes for rapid prototyping and one-off adjustments
+- Maintain the established visual hierarchy through consistent token usage
+
+**File Import Order**:
+1. Google Fonts (preconnect optimization)
+2. `design-tokens.css` (imported first)
+3. Component stylesheets
+4. Application-specific styles
+
+This comprehensive design system provides a professional foundation for consistent, maintainable, and scalable UI development across the entire Design Tool application.
 
 This document serves as the authoritative source of truth for all design decisions and represents a completed, production-ready design system management tool.

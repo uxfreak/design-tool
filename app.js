@@ -20,8 +20,257 @@ let appState = {
     currentView: 'grid',
     isLoading: false,
     activeCreations: new Map(), // Track active project creations
-    openProjects: new Map() // Track opened projects with Component Library viewer
+    openProjects: new Map(), // Track opened projects with Component Library viewer
+    projectServers: new Map() // Track server status for each project
 };
+
+// Project server state management
+const SERVER_STATUS = {
+    STOPPED: 'stopped',
+    STARTING: 'starting', 
+    READY: 'ready',
+    FAILED: 'failed'
+};
+
+function createProjectServerState(projectId) {
+    return {
+        projectId,
+        status: SERVER_STATUS.STOPPED,
+        url: null,
+        port: null,
+        pid: null,
+        startTime: null,
+        lastError: null
+    };
+}
+
+function updateProjectServerState(projectId, updates) {
+    const currentState = appState.projectServers.get(projectId) || createProjectServerState(projectId);
+    const newState = { ...currentState, ...updates };
+    appState.projectServers.set(projectId, newState);
+    
+    // Update UI indicators
+    updateServerStatusIndicator(newState);
+    
+    return newState;
+}
+
+function getProjectServerState(projectId) {
+    return appState.projectServers.get(projectId) || createProjectServerState(projectId);
+}
+
+function isServerReady(projectId) {
+    const state = getProjectServerState(projectId);
+    return state.status === SERVER_STATUS.READY && state.url;
+}
+
+// Background server startup (non-blocking)
+async function startProjectServerBackground(projectId) {
+    console.log('🚀 Starting dev server in background for project:', projectId);
+    
+    // Update state to starting
+    updateProjectServerState(projectId, {
+        status: SERVER_STATUS.STARTING,
+        startTime: Date.now()
+    });
+    
+    try {
+        // Check if already running first
+        const statusResult = await window.electronAPI.getProjectServerStatus(projectId);
+        if (statusResult.success && statusResult.status === 'running') {
+            console.log('✅ Server already running for project:', projectId);
+            updateProjectServerState(projectId, {
+                status: SERVER_STATUS.READY,
+                url: statusResult.url,
+                port: statusResult.port,
+                pid: statusResult.pid
+            });
+            return;
+        }
+        
+        // Start new server
+        const startResult = await window.electronAPI.startProjectServer(projectId);
+        if (startResult.success) {
+            console.log('✅ Server started successfully for project:', projectId);
+            updateProjectServerState(projectId, {
+                status: SERVER_STATUS.READY,
+                url: startResult.url,
+                port: startResult.port,
+                pid: startResult.pid
+            });
+            
+            // Enable live features now that server is ready
+            enableLiveFeatures(projectId);
+        } else {
+            console.error('❌ Server failed to start for project:', projectId, startResult.error);
+            updateProjectServerState(projectId, {
+                status: SERVER_STATUS.FAILED,
+                lastError: startResult.error
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error starting server for project:', projectId, error);
+        updateProjectServerState(projectId, {
+            status: SERVER_STATUS.FAILED,
+            lastError: error.message
+        });
+    }
+}
+
+// Update status bar indicator based on server state
+function updateServerStatusIndicator(serverState) {
+    const serverIndicator = document.querySelector('#server-status .status-indicator');
+    const serverIcon = document.querySelector('#server-status .icon');
+    
+    if (!serverIndicator) return;
+    
+    // Clear existing classes
+    serverIndicator.className = 'status-indicator';
+    
+    switch (serverState.status) {
+        case SERVER_STATUS.STARTING:
+            serverIndicator.classList.add('inactive');
+            serverIndicator.parentElement.title = 'Dev server starting...';
+            break;
+        case SERVER_STATUS.READY:
+            serverIndicator.classList.add('active');
+            serverIndicator.parentElement.title = `Dev server ready (${serverState.url})`;
+            break;
+        case SERVER_STATUS.FAILED:
+            serverIndicator.classList.add('error');
+            serverIndicator.parentElement.title = `Dev server failed: ${serverState.lastError}`;
+            break;
+        default:
+            serverIndicator.classList.add('inactive');
+            serverIndicator.parentElement.title = 'Dev server stopped';
+    }
+}
+
+// Enable live features when server becomes ready
+function enableLiveFeatures(projectId) {
+    console.log('🎉 Enabling live features for project:', projectId);
+    
+    // Add live preview buttons to component library
+    addLivePreviewButtons(projectId);
+    
+    // Enable instant workflow previews
+    enableInstantWorkflowPreviews(projectId);
+    
+    // Update UI to show server is ready
+    showServerReadyNotification(projectId);
+}
+
+function addLivePreviewButtons(projectId) {
+    // This will be implemented when we get to the component library enhancement
+    console.log('📝 TODO: Add live preview buttons for components');
+}
+
+function enableInstantWorkflowPreviews(projectId) {
+    // Update workflow cards to show they're ready for instant preview
+    const workflowCards = document.querySelectorAll('.workflow-card');
+    workflowCards.forEach(card => {
+        if (!card.classList.contains('empty-workflow')) {
+            card.classList.add('server-ready');
+        }
+    });
+}
+
+function showServerReadyNotification(projectId) {
+    // Subtle notification that server is ready (optional)
+    console.log('✨ Server ready for instant previews');
+}
+
+// Smart server cleanup and resource management
+function addServerCleanupHandlers() {
+    // Cleanup when navigating back to dashboard
+    const originalShowDashboard = window.showDashboard;
+    if (originalShowDashboard) {
+        window.showDashboard = function() {
+            scheduleServerCleanup();
+            return originalShowDashboard.call(this);
+        };
+    }
+    
+    // Cleanup on app quit
+    window.addEventListener('beforeunload', () => {
+        stopAllProjectServers();
+    });
+}
+
+function scheduleServerCleanup() {
+    // Stop servers after 5 minutes of inactivity (user might come back)
+    setTimeout(() => {
+        if (appContext.currentView === 'dashboard') {
+            console.log('🧹 Cleaning up inactive project servers');
+            stopAllProjectServers();
+        }
+    }, 5 * 60 * 1000); // 5 minutes
+}
+
+async function stopAllProjectServers() {
+    const serverPromises = [];
+    
+    for (const [projectId, serverState] of appState.projectServers) {
+        if (serverState.status === SERVER_STATUS.READY || serverState.status === SERVER_STATUS.STARTING) {
+            console.log('🛑 Stopping server for project:', projectId);
+            serverPromises.push(stopProjectServer(projectId));
+        }
+    }
+    
+    await Promise.all(serverPromises);
+    appState.projectServers.clear();
+}
+
+async function stopProjectServer(projectId) {
+    try {
+        const result = await window.electronAPI.stopProjectServer(projectId);
+        if (result.success) {
+            updateProjectServerState(projectId, {
+                status: SERVER_STATUS.STOPPED,
+                url: null,
+                port: null,
+                pid: null
+            });
+            console.log('✅ Server stopped for project:', projectId);
+        } else {
+            console.error('❌ Failed to stop server for project:', projectId, result.error);
+        }
+    } catch (error) {
+        console.error('❌ Error stopping server for project:', projectId, error);
+    }
+}
+
+// Server failure handling and retry mechanisms
+function handleServerFailure(projectId, error) {
+    console.error('🚨 Server failure for project:', projectId, error);
+    
+    updateProjectServerState(projectId, {
+        status: SERVER_STATUS.FAILED,
+        lastError: error
+    });
+    
+    // Show user-friendly error in UI
+    showServerErrorNotification(projectId, error);
+}
+
+function showServerErrorNotification(projectId, error) {
+    // Update workflow cards to show server error state
+    const workflowCards = document.querySelectorAll('.workflow-card');
+    workflowCards.forEach(card => {
+        card.classList.remove('server-ready');
+        card.classList.add('server-error');
+    });
+}
+
+function retryServerStart(projectId) {
+    console.log('🔄 Retrying server start for project:', projectId);
+    startProjectServerBackground(projectId);
+}
+
+// Initialize server cleanup handlers when app loads
+document.addEventListener('DOMContentLoaded', () => {
+    addServerCleanupHandlers();
+});
 
 // Phase 3: Context Awareness System
 let appContext = {
@@ -932,14 +1181,48 @@ async function showComponentLibraryContent(contentArea, project) {
     `;
     
     try {
-        // Discover real components from project
-        const result = await window.electronAPI.discoverComponents(project.id);
+        // Discover real components from project and get server status
+        const [componentResult, serverStatus] = await Promise.all([
+            window.electronAPI.discoverComponents(project.id),
+            window.electronAPI.getProjectServerStatus(project.id)
+        ]);
         
-        if (result.success) {
-            const componentLibraryContent = generateComponentLibraryHTML(result, project);
+        if (componentResult.success) {
+            const componentLibraryContent = generateComponentLibraryHTML(componentResult, project, serverStatus);
             contentArea.innerHTML = `<iframe src="data:text/html;charset=utf-8,${encodeURIComponent(componentLibraryContent)}" class="project-iframe"></iframe>`;
+            
+            // Add message listener for iframe communication (server start requests and refresh)
+            const messageListener = async (event) => {
+                if (event.data && event.data.action === 'startServer') {
+                    try {
+                        console.log('🚀 Starting dev server from component library...');
+                        const result = await window.electronAPI.startProjectServer(project.id);
+                        if (result.success) {
+                            // Refresh the component library to show live previews
+                            showComponentLibraryContent(contentArea, project);
+                        } else {
+                            console.error('Failed to start server:', result.error);
+                        }
+                    } catch (error) {
+                        console.error('Error starting dev server:', error);
+                    }
+                } else if (event.data && event.data.action === 'refreshComponents') {
+                    try {
+                        console.log('🔄 Refreshing component library...');
+                        // Re-discover components and refresh the view
+                        showComponentLibraryContent(contentArea, project);
+                    } catch (error) {
+                        console.error('Error refreshing components:', error);
+                    }
+                }
+            };
+            
+            // Remove any existing listeners and add the new one
+            window.removeEventListener('message', messageListener);
+            window.addEventListener('message', messageListener);
+            
         } else {
-            contentArea.innerHTML = generateComponentLibraryError(result.error, project);
+            contentArea.innerHTML = generateComponentLibraryError(componentResult.error, project);
         }
         
     } catch (error) {
@@ -949,17 +1232,20 @@ async function showComponentLibraryContent(contentArea, project) {
 }
 
 /**
- * Generate Component Library HTML from discovered components (PURE FUNCTION)
+ * Generate Component Library HTML from discovered components with Storybook-like interface (PURE FUNCTION)
  * @param {Object} discoveryResult - Result from component discovery
  * @param {Object} project - Project object
+ * @param {Object} serverStatus - Server status object
  * @returns {string} HTML content
  */
-function generateComponentLibraryHTML(discoveryResult, project) {
+function generateComponentLibraryHTML(discoveryResult, project, serverStatus) {
     const { components, totalComponents, totalVariants } = discoveryResult;
     
-    const componentsHTML = components.length > 0 
-        ? components.map(generateComponentCard).join('')
-        : generateNoComponentsCard();
+    const sidebarHTML = generateComponentSidebar(components);
+    const selectedComponent = components.length > 0 ? components[0] : null;
+    const mainContentHTML = selectedComponent 
+        ? generateComponentVariantsView(selectedComponent, serverStatus)
+        : generateEmptyComponentView();
     
     return `
         <!DOCTYPE html>
@@ -967,64 +1253,932 @@ function generateComponentLibraryHTML(discoveryResult, project) {
         <head>
             <title>Component Library - ${project.name}</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; margin: 0; background: #1a1a1a; color: #ffffff; }
-                .storybook-container { padding: 2rem; }
-                .storybook-header { text-align: center; margin-bottom: 3rem; }
-                .storybook-logo { font-size: 3rem; margin-bottom: 1rem; }
-                .project-name { font-size: 2rem; color: #ffffff; margin-bottom: 0.5rem; font-weight: 300; letter-spacing: -0.02em; }
-                .demo-text { color: #ccc; font-size: 1.1rem; margin-bottom: 0.5rem; }
-                .stats-text { color: #888; font-size: 0.95rem; }
-                .components-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; max-width: 1200px; margin: 0 auto; }
-                .component-card { background: #2a2a2a; padding: 2rem; border-radius: 12px; border: 1px solid #333; box-shadow: 0 4px 16px rgba(0,0,0,0.3); transition: all 0.2s; }
-                .component-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2); border-color: #667eea; }
-                .component-title { font-size: 1.4rem; font-weight: 600; color: #ffffff; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
-                .component-file-path { color: #888; font-size: 0.85rem; margin-bottom: 1rem; font-family: 'SF Mono', Monaco, monospace; background: #1f1f1f; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid #333; }
-                .component-description { color: #ccc; margin-bottom: 1.5rem; line-height: 1.5; }
-                .component-variants { margin-top: 1.5rem; }
-                .variants-title { font-weight: 600; color: #ffffff; margin-bottom: 0.75rem; }
-                .variants-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-                .variant-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.8rem; font-weight: 500; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); }
-                .no-variants { color: #888; font-style: italic; }
-                .no-components-card { text-align: center; padding: 3rem 2rem; background: #2a2a2a; border: 1px solid #333; }
-                .no-components-icon { font-size: 4rem; margin-bottom: 1rem; opacity: 0.3; filter: grayscale(1); }
-                .refresh-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; font-weight: 500; margin-top: 1rem; transition: all 0.2s; box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3); }
-                .refresh-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
-                
-                /* Sparkle animation for components with variants */
-                .component-title .variant-sparkle {
-                    animation: sparkle 2s ease-in-out infinite;
-                    filter: hue-rotate(45deg);
+                * { box-sizing: border-box; }
+                body { 
+                    margin: 0; 
+                    padding: 0;
+                    font-family: var(--font-primary, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif); 
+                    background: var(--color-surface-primary, #1a1a1a); 
+                    color: var(--color-text-primary, #ffffff); 
+                    height: 100vh;
+                    overflow: hidden;
                 }
                 
-                @keyframes sparkle {
-                    0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.8; }
-                    50% { transform: scale(1.2) rotate(180deg); opacity: 1; }
+                .storybook-layout {
+                    display: flex;
+                    height: 100vh;
                 }
                 
-                /* Gradient border for components with variants */
-                .component-card.has-variants {
+                /* Left Sidebar */
+                .storybook-sidebar {
+                    width: 300px;
+                    min-width: 300px;
+                    background: var(--color-surface-secondary, #1f1f1f);
+                    border-right: 1px solid var(--color-border-primary, #333);
+                    display: flex;
+                    flex-direction: column;
+                }
+                
+                .sidebar-header {
+                    padding: var(--space-6, 1.5rem) var(--space-4, 1rem);
+                    border-bottom: 1px solid var(--color-border-primary, #333);
+                    background: var(--gradient-primary, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
+                }
+                
+                .sidebar-header-content {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                }
+                
+                .sidebar-title {
+                    font-size: var(--text-lg, 1.05rem);
+                    font-weight: var(--weight-semibold, 600);
+                    color: white;
+                    margin: 0 0 var(--space-2, 0.5rem) 0;
+                }
+                
+                .sidebar-stats {
+                    font-size: var(--text-sm, 0.85rem);
+                    color: rgba(255, 255, 255, 0.8);
+                    margin: 0;
+                }
+                
+                .refresh-btn {
+                    background: rgba(255, 255, 255, 0.2);
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    color: white;
+                    padding: 0.5rem;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 2rem;
+                    height: 2rem;
+                }
+                
+                .refresh-btn:hover {
+                    background: rgba(255, 255, 255, 0.3);
+                    border-color: rgba(255, 255, 255, 0.5);
+                    transform: scale(1.05);
+                }
+                
+                .refresh-btn:active {
+                    transform: scale(0.95);
+                }
+                
+                .refresh-btn.refreshing {
+                    animation: spin 1s linear infinite;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                .components-nav {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: var(--space-4, 1rem);
+                }
+                
+                .nav-section-title {
+                    font-size: var(--text-xs, 0.75rem);
+                    font-weight: var(--weight-semibold, 600);
+                    color: var(--color-text-secondary, #ccc);
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    margin: 0 0 var(--space-3, 0.75rem) 0;
+                    padding-left: var(--space-2, 0.5rem);
+                }
+                
+                .component-nav-item {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-3, 0.75rem);
+                    padding: var(--space-3, 0.75rem);
+                    margin-bottom: var(--space-2, 0.5rem);
+                    border-radius: var(--radius-lg, 8px);
+                    cursor: pointer;
+                    transition: all var(--duration-fast, 0.15s) var(--ease-out, ease-out);
                     border: 1px solid transparent;
-                    background: linear-gradient(#2a2a2a, #2a2a2a) padding-box,
-                                linear-gradient(135deg, #667eea, #764ba2) border-box;
                 }
                 
-                .component-card.has-variants:hover {
-                    background: linear-gradient(#2a2a2a, #2a2a2a) padding-box,
-                                linear-gradient(135deg, #667eea, #764ba2, #667eea) border-box;
+                .component-nav-item:hover {
+                    background: var(--color-surface-tertiary, #2a2a2a);
+                    border-color: var(--color-border-secondary, #444);
+                }
+                
+                .component-nav-item.active {
+                    background: var(--color-primary-light, rgba(102, 126, 234, 0.1));
+                    border-color: var(--color-primary, #667eea);
+                }
+                
+                .component-nav-icon {
+                    font-size: var(--icon-lg, 20px);
+                    opacity: 0.7;
+                }
+                
+                .component-nav-name {
+                    font-size: var(--text-base, 1rem);
+                    font-weight: var(--weight-medium, 500);
+                    color: var(--color-text-primary, #ffffff);
+                }
+                
+                .component-nav-variants {
+                    font-size: var(--text-xs, 0.75rem);
+                    color: var(--color-text-tertiary, #888);
+                    margin-top: var(--space-1, 0.25rem);
+                }
+                
+                /* Main Content Area */
+                .storybook-main {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                }
+                
+                .main-header {
+                    padding: var(--space-6, 1.5rem) var(--space-8, 2rem);
+                    border-bottom: 1px solid var(--color-border-primary, #333);
+                    background: var(--color-surface-secondary, #1f1f1f);
+                }
+                
+                .component-name {
+                    font-size: var(--text-3xl, 1.5rem);
+                    font-weight: var(--weight-semibold, 600);
+                    color: var(--color-text-primary, #ffffff);
+                    margin: 0 0 var(--space-2, 0.5rem) 0;
+                }
+                
+                .component-path {
+                    font-size: var(--text-sm, 0.85rem);
+                    color: var(--color-text-tertiary, #888);
+                    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+                    background: var(--color-surface-primary, #1a1a1a);
+                    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+                    border-radius: var(--radius-sm, 4px);
+                    border: 1px solid var(--color-border-primary, #333);
+                    display: inline-block;
+                }
+                
+                .main-content {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: var(--space-8, 2rem);
+                }
+                
+                .variants-section {
+                    margin-bottom: var(--space-10, 2.5rem);
+                }
+                
+                .section-title {
+                    font-size: var(--text-xl, 1.2rem);
+                    font-weight: var(--weight-semibold, 600);
+                    color: var(--color-text-primary, #ffffff);
+                    margin: 0 0 var(--space-6, 1.5rem) 0;
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-2, 0.5rem);
+                }
+                
+                .variants-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: var(--space-6, 1.5rem);
+                }
+                
+                .variant-card {
+                    background: var(--card-bg, var(--color-surface-tertiary, #2a2a2a));
+                    border: 1px solid var(--color-border-primary, #333);
+                    border-radius: var(--radius-lg, 8px);
+                    overflow: hidden;
+                    transition: all var(--duration-normal, 0.2s) var(--ease-out, ease-out);
+                    box-shadow: var(--shadow-md, 0 4px 8px rgba(0, 0, 0, 0.1));
+                }
+                
+                .variant-card:hover {
+                    transform: translateY(-2px);
+                    border-color: var(--card-hover-border, var(--color-primary, #667eea));
+                    box-shadow: var(--shadow-lg, 0 8px 24px rgba(102, 126, 234, 0.1));
+                }
+                
+                .variant-header {
+                    padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+                    background: var(--color-surface-secondary, #1f1f1f);
+                    border-bottom: 1px solid var(--color-border-primary, #333);
+                }
+                
+                .variant-name {
+                    font-size: var(--text-lg, 1.05rem);
+                    font-weight: var(--weight-medium, 500);
+                    color: var(--color-text-primary, #ffffff);
+                    margin: 0;
+                }
+                
+                .variant-preview {
+                    padding: var(--space-8, 2rem);
+                    min-height: 120px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: var(--color-surface-primary, #1a1a1a);
+                    position: relative;
+                }
+                
+                .variant-placeholder {
+                    padding: var(--space-6, 1.5rem) var(--space-8, 2rem);
+                    border: 2px dashed var(--color-border-secondary, #444);
+                    border-radius: var(--radius-md, 6px);
+                    text-align: center;
+                    color: var(--color-text-tertiary, #888);
+                    background: linear-gradient(135deg, var(--color-primary, #667eea) 0%, var(--color-secondary, #764ba2) 100%);
+                    background-clip: text;
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    font-weight: var(--weight-medium, 500);
+                }
+                
+                /* Live Preview Styles */
+                .variant-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }
+                
+                .variant-status {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-2, 0.5rem);
+                    font-size: var(--text-xs, 0.75rem);
+                    color: var(--color-text-secondary, #ccc);
+                }
+                
+                .status-dot {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    display: inline-block;
+                }
+                
+                .status-live {
+                    background: var(--color-success, #4caf50);
+                    animation: pulse 2s ease-in-out infinite;
+                }
+                
+                .status-offline {
+                    background: var(--color-text-tertiary, #888);
+                }
+                
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                }
+                
+                .live-preview {
+                    padding: 0;
+                    height: 300px;
+                    background: white;
+                    border-radius: 0 0 var(--radius-lg, 8px) var(--radius-lg, 8px);
+                    overflow: hidden;
+                }
+                
+                .component-iframe {
+                    width: 100%;
+                    height: 100%;
+                    border: none;
+                    background: white;
+                }
+                
+                .preview-overlay {
+                    position: absolute;
+                    top: var(--space-2, 0.5rem);
+                    right: var(--space-2, 0.5rem);
+                    opacity: 0;
+                    transition: opacity var(--duration-fast, 0.15s);
+                }
+                
+                .variant-card:hover .preview-overlay {
+                    opacity: 1;
+                }
+                
+                .open-in-new {
+                    background: var(--color-surface-tertiary, #2a2a2a);
+                    border: 1px solid var(--color-border-primary, #333);
+                    color: var(--color-text-primary, #ffffff);
+                    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+                    border-radius: var(--radius-sm, 4px);
+                    font-size: var(--text-sm, 0.85rem);
+                    cursor: pointer;
+                    transition: all var(--duration-fast, 0.15s);
+                    backdrop-filter: blur(10px);
+                }
+                
+                .open-in-new:hover {
+                    background: var(--color-primary, #667eea);
+                    border-color: var(--color-primary, #667eea);
+                }
+                
+                .variant-placeholder.offline {
+                    border-color: var(--color-text-tertiary, #888);
+                    background: none;
+                    color: var(--color-text-secondary, #ccc);
+                }
+                
+                .placeholder-icon {
+                    font-size: 2rem;
+                    margin-bottom: var(--space-3, 0.75rem);
+                    opacity: 0.5;
+                }
+                
+                .placeholder-text {
+                    font-size: var(--text-lg, 1.05rem);
+                    font-weight: var(--weight-medium, 500);
+                    margin-bottom: var(--space-2, 0.5rem);
+                }
+                
+                .placeholder-subtitle {
+                    font-size: var(--text-sm, 0.85rem);
+                    margin-bottom: var(--space-4, 1rem);
+                    opacity: 0.7;
+                }
+                
+                .start-server-btn {
+                    background: var(--gradient-primary, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
+                    border: none;
+                    color: white;
+                    padding: var(--space-3, 0.75rem) var(--space-5, 1.25rem);
+                    border-radius: var(--radius-md, 6px);
+                    font-size: var(--text-sm, 0.85rem);
+                    font-weight: var(--weight-medium, 500);
+                    cursor: pointer;
+                    transition: all var(--duration-fast, 0.15s);
+                    box-shadow: var(--shadow-md, 0 4px 8px rgba(0, 0, 0, 0.1));
+                }
+                
+                .start-server-btn:hover {
+                    transform: translateY(-1px);
+                    box-shadow: var(--shadow-lg, 0 8px 24px rgba(102, 126, 234, 0.1));
+                }
+                
+                /* Loading and transition states */
+                .variant-card.transitioning {
+                    opacity: 0.7;
+                    transition: opacity var(--duration-slow, 0.3s);
+                }
+                
+                .variant-preview.loading {
+                    background: var(--color-surface-tertiary, #2a2a2a);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .preview-loading-spinner {
+                    width: 24px;
+                    height: 24px;
+                    border: 2px solid var(--color-text-tertiary, #888);
+                    border-top: 2px solid var(--color-primary, #667eea);
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                /* Smooth status transitions */
+                .variant-status {
+                    transition: all var(--duration-normal, 0.2s);
+                }
+                
+                .status-dot {
+                    transition: background-color var(--duration-normal, 0.2s);
+                }
+                
+                /* Auto-refresh indicator */
+                .component-iframe.refreshing {
+                    opacity: 0.5;
+                    transition: opacity var(--duration-fast, 0.15s);
+                }
+                
+                .component-iframe.loaded {
+                    opacity: 1;
+                    transition: opacity var(--duration-normal, 0.2s);
+                }
+                
+                .empty-state {
+                    text-align: center;
+                    padding: var(--space-20, 5rem) var(--space-8, 2rem);
+                    color: var(--color-text-secondary, #ccc);
+                }
+                
+                .empty-icon {
+                    font-size: 4rem;
+                    margin-bottom: var(--space-6, 1.5rem);
+                    opacity: 0.3;
+                }
+                
+                .empty-title {
+                    font-size: var(--text-2xl, 1.3rem);
+                    font-weight: var(--weight-medium, 500);
+                    margin: 0 0 var(--space-4, 1rem) 0;
+                }
+                
+                .empty-description {
+                    font-size: var(--text-base, 1rem);
+                    line-height: var(--leading-relaxed, 1.5);
+                    max-width: 500px;
+                    margin: 0 auto;
+                }
+                
+                /* Scrollbar styling */
+                .components-nav::-webkit-scrollbar,
+                .main-content::-webkit-scrollbar {
+                    width: 6px;
+                }
+                
+                .components-nav::-webkit-scrollbar-track,
+                .main-content::-webkit-scrollbar-track {
+                    background: var(--color-surface-primary, #1a1a1a);
+                }
+                
+                .components-nav::-webkit-scrollbar-thumb,
+                .main-content::-webkit-scrollbar-thumb {
+                    background: var(--color-border-secondary, #444);
+                    border-radius: 3px;
+                }
+                
+                .components-nav::-webkit-scrollbar-thumb:hover,
+                .main-content::-webkit-scrollbar-thumb:hover {
+                    background: var(--color-hover, #555);
                 }
             </style>
         </head>
         <body>
-            <div class="storybook-container">
-                <div class="storybook-header">
-                    <div class="storybook-logo">🧩</div>
-                    <h1 class="project-name">${project.name}</h1>
-                    <p class="demo-text">Live Component Library</p>
-                    <p class="stats-text">${totalComponents} components • ${totalVariants} variants</p>
+            <div class="storybook-layout">
+                ${sidebarHTML}
+                <div class="storybook-main">
+                    ${mainContentHTML}
+                </div>
+            </div>
+            
+            <script>
+                // Component navigation functionality and server state
+                let selectedComponent = '${selectedComponent ? selectedComponent.name : ''}';
+                const components = ${JSON.stringify(components)};
+                let serverStatus = ${JSON.stringify(serverStatus)};
+                const projectId = '${project.id}';
+                let statusCheckInterval;
+                
+                function selectComponent(componentName) {
+                    selectedComponent = componentName;
+                    
+                    // Update navigation active state
+                    document.querySelectorAll('.component-nav-item').forEach(item => {
+                        item.classList.remove('active');
+                    });
+                    document.querySelector(\`[data-component="\${componentName}"]\`).classList.add('active');
+                    
+                    // Update main content
+                    const component = components.find(c => c.name === componentName);
+                    const mainContent = document.querySelector('.storybook-main');
+                    mainContent.innerHTML = generateMainContent(component);
+                }
+                
+                function generateMainContent(component) {
+                    if (!component) return '';
+                    
+                    const relativePath = component.filePath.includes('src/components/') 
+                        ? component.filePath.split('src/components/')[1] 
+                        : component.fileName;
+                    
+                    const variantsHTML = component.hasVariants && component.variants.length > 0
+                        ? component.variants.map(variant => generateVariantCard(component, variant)).join('')
+                        : generateVariantCard(component, { name: 'Default' });
+                    
+                    return \`
+                        <div class="main-header">
+                            <h1 class="component-name">\${component.name}</h1>
+                            <div class="component-path">\${relativePath}</div>
+                        </div>
+                        <div class="main-content">
+                            <div class="variants-section">
+                                <h2 class="section-title">
+                                    ✨ Variants
+                                    (\${component.hasVariants ? component.variants.length : 1})
+                                </h2>
+                                <div class="variants-grid">
+                                    \${variantsHTML}
+                                </div>
+                            </div>
+                        </div>
+                    \`;
+                }
+                
+                // Generate individual variant card with isolated component preview
+                function generateVariantCard(component, variant) {
+                    // Always show isolated component preview (like Storybook)
+                    const componentStoryUrl = generateComponentStoryUrl(component, variant);
+                    
+                    return \`
+                        <div class="variant-card" data-variant="\${variant.name}">
+                            <div class="variant-header">
+                                <h3 class="variant-name">\${variant.name}</h3>
+                                <div class="variant-status">
+                                    <span class="status-dot status-ready"></span>
+                                    <span>Component Preview</span>
+                                </div>
+                            </div>
+                            <div class="variant-preview live-preview">
+                                <iframe 
+                                    src="\${componentStoryUrl}" 
+                                    class="component-iframe"
+                                    frameborder="0"
+                                    sandbox="allow-scripts allow-same-origin"
+                                    loading="lazy">
+                                </iframe>
+                                <div class="preview-overlay">
+                                    <button class="open-in-new" onclick="window.open('\${componentStoryUrl}', '_blank')" title="Open in new window">
+                                        ⤴️
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    \`;
+                }
+                
+                // Generate component story URL for isolated rendering
+                function generateComponentStoryUrl(component, variant) {
+                    // Create an isolated component preview using data: URL with complete HTML
+                    const componentPreviewHTML = generateIsolatedComponentHTML(component, variant);
+                    return \`data:text/html;charset=utf-8,\${encodeURIComponent(componentPreviewHTML)}\`;
+                }
+                
+                // Generate isolated component HTML (moved from global scope to iframe scope)
+                function generateIsolatedComponentHTML(component, variant) {
+                    const variantProps = variant.props || {};
+                    const propsString = Object.entries(variantProps)
+                        .map(([key, value]) => \`\${key}={\${JSON.stringify(value)}}\`)
+                        .join(' ');
+                    
+                    return \`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>\${component.name} - \${variant.name}</title>
+                            <style>
+                                * { box-sizing: border-box; }
+                                body { 
+                                    margin: 0; 
+                                    padding: 2rem;
+                                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+                                    background: #ffffff;
+                                    color: #333;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    min-height: 100vh;
+                                }
+                                .preview-container {
+                                    background: white;
+                                    border-radius: 8px;
+                                    padding: 2rem;
+                                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                                    max-width: 600px;
+                                    width: 100%;
+                                }
+                                .component-info {
+                                    text-align: center;
+                                    margin-bottom: 2rem;
+                                    padding-bottom: 1rem;
+                                    border-bottom: 1px solid #eee;
+                                }
+                                .component-name {
+                                    font-size: 1.5rem;
+                                    font-weight: 600;
+                                    margin: 0 0 0.5rem 0;
+                                    color: #667eea;
+                                }
+                                .variant-name {
+                                    font-size: 1rem;
+                                    color: #666;
+                                    margin: 0;
+                                }
+                                .component-preview {
+                                    text-align: center;
+                                    padding: 2rem;
+                                    background: #f8f9fa;
+                                    border-radius: 4px;
+                                    margin-bottom: 1rem;
+                                }
+                                .component-code {
+                                    background: #f1f3f4;
+                                    padding: 1rem;
+                                    border-radius: 4px;
+                                    font-family: monospace;
+                                    font-size: 0.9rem;
+                                    color: #333;
+                                    overflow-x: auto;
+                                }
+                                .props-info {
+                                    margin-top: 1rem;
+                                    font-size: 0.85rem;
+                                    color: #666;
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="preview-container">
+                                <div class="component-info">
+                                    <h1 class="component-name">\${component.name}</h1>
+                                    <p class="variant-name">Variant: \${variant.name}</p>
+                                </div>
+                                
+                                <div class="component-preview">
+                                    <div style="font-size: 1.2rem; color: #667eea; margin-bottom: 1rem;">
+                                        📦 Component Preview
+                                    </div>
+                                    <div style="font-size: 0.9rem; color: #666;">
+                                        This is a mock preview of the <strong>\${component.name}</strong> component.
+                                        <br>In a full implementation, this would render the actual React component.
+                                    </div>
+                                </div>
+                                
+                                <div class="component-code">
+                                    &lt;\${component.name} \${propsString} /&gt;
+                                </div>
+                                
+                                <div class="props-info">
+                                    <strong>Props:</strong> \${Object.keys(variantProps).length > 0 ? JSON.stringify(variantProps, null, 2) : 'None'}
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                    \`;
+                }
+                
+                
+                // Start development server for live previews
+                async function startDevServer() {
+                    try {
+                        const result = await window.parent.electronAPI.startProjectServer(projectId);
+                        if (result.success) {
+                            // Refresh the component library to show live previews
+                            window.location.reload();
+                        } else {
+                            alert('Failed to start development server: ' + result.error);
+                        }
+                    } catch (error) {
+                        console.error('Error starting dev server:', error);
+                        alert('Error starting development server');
+                    }
+                }
+                
+                // Real-time server status monitoring
+                async function checkServerStatus() {
+                    try {
+                        const response = await window.parent.electronAPI.getProjectServerStatus(projectId);
+                        const previousStatus = serverStatus?.status;
+                        serverStatus = response;
+                        
+                        // If server status changed from non-ready to ready, refresh previews
+                        if (previousStatus !== 'ready' && serverStatus?.status === 'ready') {
+                            console.log('🚀 Server is now ready! Loading live previews...');
+                            updateAllVariantPreviews();
+                        }
+                        // If server stopped, update to show offline state
+                        else if (previousStatus === 'ready' && serverStatus?.status !== 'ready') {
+                            console.log('⏹️ Server stopped. Updating to offline state...');
+                            updateAllVariantPreviews();
+                        }
+                        
+                        // Update server status indicators
+                        updateServerStatusIndicators();
+                        
+                    } catch (error) {
+                        console.error('Failed to check server status:', error);
+                    }
+                }
+                
+                // Update all variant previews based on current server status
+                function updateAllVariantPreviews() {
+                    const currentComponent = components.find(c => c.name === selectedComponent);
+                    if (currentComponent) {
+                        const mainContent = document.querySelector('.storybook-main');
+                        if (mainContent) {
+                            mainContent.innerHTML = generateMainContent(currentComponent);
+                        }
+                    }
+                }
+                
+                // Update server status indicators across all variant cards with smooth transitions
+                function updateServerStatusIndicators() {
+                    const variantCards = document.querySelectorAll('.variant-card');
+                    const isServerReady = serverStatus?.status === 'ready';
+                    const isServerStarting = serverStatus?.status === 'starting';
+                    
+                    variantCards.forEach(card => {
+                        const statusEl = card.querySelector('.variant-status');
+                        const dotEl = statusEl?.querySelector('.status-dot');
+                        const textEl = statusEl?.querySelector('.status-dot + span');
+                        
+                        if (!dotEl || !textEl) return;
+                        
+                        // Update visual state
+                        if (isServerReady) {
+                            dotEl.classList.remove('status-offline');
+                            dotEl.classList.add('status-live');
+                            textEl.textContent = 'Live Preview';
+                            card.classList.remove('transitioning');
+                        } else if (isServerStarting) {
+                            dotEl.classList.remove('status-offline');
+                            dotEl.classList.add('status-live');
+                            textEl.textContent = 'Server starting...';
+                            card.classList.add('transitioning');
+                        } else {
+                            dotEl.classList.remove('status-live');
+                            dotEl.classList.add('status-offline');
+                            textEl.textContent = 'Server stopped';
+                            card.classList.remove('transitioning');
+                        }
+                    });
+                }
+                
+                // Start real-time monitoring when page loads
+                function startServerMonitoring() {
+                    console.log('🔄 Starting real-time server monitoring for project:', projectId);
+                    
+                    // Initial check
+                    checkServerStatus();
+                    
+                    // Set up periodic checks - more frequent initially, then slower
+                    let checkCount = 0;
+                    const quickCheck = () => {
+                        checkServerStatus();
+                        checkCount++;
+                        
+                        // First 30 checks (1 minute) - check every 2 seconds
+                        // After that - check every 5 seconds
+                        const interval = checkCount < 30 ? 2000 : 5000;
+                        statusCheckInterval = setTimeout(quickCheck, interval);
+                    };
+                    
+                    statusCheckInterval = setTimeout(quickCheck, 1000); // First check after 1 second
+                }
+                
+                // Stop monitoring when page unloads
+                function stopServerMonitoring() {
+                    if (statusCheckInterval) {
+                        clearTimeout(statusCheckInterval);
+                        statusCheckInterval = null;
+                        console.log('⏹️ Stopped server monitoring');
+                    }
+                }
+                
+                // Initialize monitoring
+                startServerMonitoring();
+                
+                // Clean up on page unload
+                window.addEventListener('beforeunload', stopServerMonitoring);
+                
+                // Refresh components function to communicate with parent
+                function refreshComponents() {
+                    const refreshBtn = document.querySelector('.refresh-btn');
+                    if (refreshBtn) {
+                        refreshBtn.classList.add('refreshing');
+                        refreshBtn.textContent = '⏳';
+                    }
+                    
+                    // Send refresh request to parent window
+                    window.parent.postMessage({ action: 'refreshComponents' }, '*');
+                    
+                    // Reset button state after animation
+                    setTimeout(() => {
+                        if (refreshBtn) {
+                            refreshBtn.classList.remove('refreshing');
+                            refreshBtn.textContent = '🔄';
+                        }
+                    }, 1000);
+                }
+                
+                // Initialize first component selection
+                if (selectedComponent) {
+                    document.querySelector(\`[data-component="\${selectedComponent}"]\`).classList.add('active');
+                }
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+/**
+ * Generate standalone HTML for isolated component preview (PURE FUNCTION)
+ * This function exists in both global scope and iframe scope to support different call paths
+ * @param {Object} component - Component object
+ * @param {Object} variant - Variant object  
+ * @returns {string} Complete HTML document for component preview
+ */
+function generateIsolatedComponentHTML(component, variant) {
+    const variantProps = variant.props || {};
+    const propsString = Object.entries(variantProps)
+        .map(([key, value]) => `${key}={${JSON.stringify(value)}}`)
+        .join(' ');
+    
+    return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${component.name} - ${variant.name}</title>
+            <style>
+                * { box-sizing: border-box; }
+                body { 
+                    margin: 0; 
+                    padding: 2rem;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+                    background: #ffffff;
+                    color: #333;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                }
+                .preview-container {
+                    background: white;
+                    border-radius: 8px;
+                    padding: 2rem;
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                    max-width: 600px;
+                    width: 100%;
+                }
+                .component-info {
+                    text-align: center;
+                    margin-bottom: 2rem;
+                    padding-bottom: 1rem;
+                    border-bottom: 1px solid #eee;
+                }
+                .component-name {
+                    font-size: 1.5rem;
+                    font-weight: 600;
+                    margin: 0 0 0.5rem 0;
+                    color: #667eea;
+                }
+                .variant-name {
+                    font-size: 1rem;
+                    color: #666;
+                    margin: 0;
+                }
+                .component-preview {
+                    text-align: center;
+                    padding: 2rem;
+                    background: #f8f9fa;
+                    border-radius: 4px;
+                    margin-bottom: 1rem;
+                }
+                .component-code {
+                    background: #f1f3f4;
+                    padding: 1rem;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    font-size: 0.9rem;
+                    color: #333;
+                    overflow-x: auto;
+                }
+                .props-info {
+                    margin-top: 1rem;
+                    font-size: 0.85rem;
+                    color: #666;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="preview-container">
+                <div class="component-info">
+                    <h1 class="component-name">${component.name}</h1>
+                    <p class="variant-name">Variant: ${variant.name}</p>
                 </div>
                 
-                <div class="components-grid">
-                    ${componentsHTML}
+                <div class="component-preview">
+                    <div style="font-size: 1.2rem; color: #667eea; margin-bottom: 1rem;">
+                        📦 Component Preview
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">
+                        This is a mock preview of the <strong>${component.name}</strong> component.
+                        <br>In a full implementation, this would render the actual React component.
+                    </div>
+                </div>
+                
+                <div class="component-code">
+                    &lt;${component.name} ${propsString} /&gt;
+                </div>
+                
+                <div class="props-info">
+                    <strong>Props:</strong> ${Object.keys(variantProps).length > 0 ? JSON.stringify(variantProps, null, 2) : 'None'}
                 </div>
             </div>
         </body>
@@ -1033,7 +2187,155 @@ function generateComponentLibraryHTML(discoveryResult, project) {
 }
 
 /**
- * Generate component card HTML (PURE FUNCTION)
+ * Generate component sidebar HTML for Storybook-like interface (PURE FUNCTION)
+ * @param {Array} components - Array of component objects
+ * @returns {string} HTML for sidebar navigation
+ */
+function generateComponentSidebar(components) {
+    const componentsNavHTML = components.length > 0 
+        ? components.map(component => {
+            const relativePath = component.filePath.includes('src/components/') 
+                ? component.filePath.split('src/components/')[1] 
+                : component.fileName;
+                
+            return `
+                <div class="component-nav-item" data-component="${component.name}" onclick="selectComponent('${component.name}')">
+                    <div class="component-nav-icon">🧩</div>
+                    <div>
+                        <div class="component-nav-name">${component.name}</div>
+                        <div class="component-nav-variants">
+                            ${component.hasVariants ? `${component.variants.length} variants` : 'No variants'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('')
+        : `
+            <div style="text-align: center; padding: 2rem; color: var(--color-text-tertiary, #888);">
+                <div style="font-size: 2rem; margin-bottom: 1rem;">📦</div>
+                <div style="font-size: 0.9rem;">No components found</div>
+            </div>
+        `;
+
+    return `
+        <div class="storybook-sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-header-content">
+                    <div>
+                        <h2 class="sidebar-title">Components</h2>
+                        <p class="sidebar-stats">${components.length} components found</p>
+                    </div>
+                    <button class="refresh-btn" onclick="refreshComponents()" title="Refresh components">
+                        🔄
+                    </button>
+                </div>
+            </div>
+            <div class="components-nav">
+                <div class="nav-section-title">Library</div>
+                ${componentsNavHTML}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Generate main content view for selected component with live previews (PURE FUNCTION)
+ * @param {Object} component - Selected component object
+ * @param {Object} serverStatus - Server status object
+ * @returns {string} HTML for main content area
+ */
+function generateComponentVariantsView(component, serverStatus) {
+    const relativePath = component.filePath.includes('src/components/') 
+        ? component.filePath.split('src/components/')[1] 
+        : component.fileName;
+    
+    // Generate variant cards using the new live preview system
+    const variantsHTML = component.hasVariants && component.variants.length > 0
+        ? component.variants.map(variant => generateVariantCardHTML(component, variant, serverStatus)).join('')
+        : generateVariantCardHTML(component, { name: 'Default' }, serverStatus);
+    
+    return `
+        <div class="main-header">
+            <h1 class="component-name">${component.name}</h1>
+            <div class="component-path">${relativePath}</div>
+        </div>
+        <div class="main-content">
+            <div class="variants-section">
+                <h2 class="section-title">
+                    ✨ Variants
+                    (${component.hasVariants ? component.variants.length : 1})
+                </h2>
+                <div class="variants-grid">
+                    ${variantsHTML}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+
+/**
+ * Generate variant card HTML with live preview support (PURE FUNCTION)
+ * @param {Object} component - Component object
+ * @param {Object} variant - Variant object
+ * @param {Object} serverStatus - Server status object
+ * @returns {string} HTML for variant card
+ */
+function generateVariantCardHTML(component, variant, serverStatus) {
+    // Always show isolated component preview (like Storybook)
+    const componentPreviewHTML = generateIsolatedComponentHTML(component, variant);
+    const componentStoryUrl = `data:text/html;charset=utf-8,${encodeURIComponent(componentPreviewHTML)}`;
+    
+    return `
+        <div class="variant-card">
+            <div class="variant-header">
+                <h3 class="variant-name">${variant.name || 'Default'}</h3>
+                <div class="variant-status">
+                    <span class="status-dot status-ready"></span>
+                    Component Preview
+                </div>
+            </div>
+            <div class="variant-preview live-preview">
+                <iframe 
+                    src="${componentStoryUrl}" 
+                    class="component-iframe"
+                    frameborder="0"
+                    sandbox="allow-scripts allow-same-origin"
+                    loading="lazy">
+                </iframe>
+                <div class="preview-overlay">
+                    <button class="open-in-new" onclick="window.open('${componentStoryUrl}', '_blank')" title="Open in new window">
+                        ⤴️
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Generate empty state for component view (PURE FUNCTION)
+ * @returns {string} HTML for empty state
+ */
+function generateEmptyComponentView() {
+    return `
+        <div class="main-content">
+            <div class="empty-state">
+                <div class="empty-icon">📦</div>
+                <h2 class="empty-title">No Components Available</h2>
+                <p class="empty-description">
+                    No React components were found in this project. 
+                    <br><br>
+                    Components should be placed in the <code>src/components/</code> directory 
+                    with <code>.jsx</code> or <code>.tsx</code> extensions to be discovered automatically.
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Generate component card HTML (PURE FUNCTION - LEGACY, kept for compatibility)
  * @param {Object} component - Component info
  * @returns {string} HTML for component card
  */
@@ -1361,7 +2663,7 @@ function createWorkflowPreviewModal() {
 }
 
 /**
- * Generate Landing Page preview content with live React dev server (ASYNC FUNCTION)
+ * Generate Landing Page preview content using pre-started dev server (ASYNC FUNCTION)
  * @param {Object} project - Project object
  * @param {Object} workflow - Workflow object  
  * @returns {string} HTML content for preview
@@ -1369,31 +2671,26 @@ function createWorkflowPreviewModal() {
 async function generateLandingPagePreview(project, workflow) {
     const step = workflow.steps[0];
     
-    // Try to get or start the React dev server
-    let serverUrl = null;
-    let serverStatus = 'loading';
+    // Get server status from our state management
+    const serverState = getProjectServerState(project.id);
+    let serverUrl = serverState.url;
+    let serverStatus = serverState.status;
     
-    try {
-        // Check if server is already running
-        const statusResult = await window.electronAPI.getProjectServerStatus(project.id);
-        if (statusResult.success && statusResult.status === 'running') {
-            serverUrl = statusResult.url;
+    // Convert our status to expected format
+    switch (serverState.status) {
+        case SERVER_STATUS.READY:
             serverStatus = 'running';
-        } else {
-            // Start the server
+            break;
+        case SERVER_STATUS.STARTING:
             serverStatus = 'starting';
-            const startResult = await window.electronAPI.startProjectServer(project.id);
-            if (startResult.success) {
-                serverUrl = startResult.url;
-                serverStatus = 'running';
-            } else {
-                serverStatus = 'failed';
-                console.error('Failed to start React dev server:', startResult.error);
-            }
-        }
-    } catch (error) {
-        console.error('Error managing React dev server:', error);
-        serverStatus = 'failed';
+            break;
+        case SERVER_STATUS.FAILED:
+            serverStatus = 'failed';
+            break;
+        default:
+            serverStatus = 'starting';
+            // If server isn't started yet, trigger background start
+            startProjectServerBackground(project.id);
     }
     
     return `
@@ -1617,7 +2914,23 @@ function closeStorybookViewer() {
 }
 
 async function deleteProject(projectId) {
-    if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+    const project = appState.projects.find(p => p.id === projectId);
+    const projectName = project ? project.name : 'this project';
+    
+    const confirmMessage = `⚠️ DELETE PROJECT: ${projectName}
+
+This will permanently delete:
+• All project files and folders from your computer
+• node_modules directory (can be large, 100MB+)
+• Source code, components, and assets
+• Project configuration (.mcp.json, package.json, etc.)
+• Any unsaved changes
+
+This action cannot be undone.
+
+Are you sure you want to continue?`;
+    
+    if (!confirm(confirmMessage)) {
         return;
     }
     
@@ -2054,6 +3367,23 @@ async function initializeTerminal(project) {
             cmd: 'shell' // This will start a shell instead of trying to launch claude directly
         });
         
+        // Auto-configure Figma MCP server after terminal starts
+        setTimeout(() => {
+            if (pid && terminal) {
+                console.log('🎨 Auto-configuring Figma MCP server...');
+                // Send the MCP add command to the terminal
+                const mcpCommand = 'claude mcp add --transport sse figma-dev-mode-mcp-server http://127.0.0.1:3845/sse\r';
+                window.electronAPI.ptyWrite(pid, mcpCommand);
+                
+                // Add a newline and clear for better UX
+                setTimeout(() => {
+                    window.electronAPI.ptyWrite(pid, 'clear\r');
+                    terminal.write('\r\n✅ Figma MCP server configured automatically\r\n');
+                    terminal.write('💡 Type "claude --continue" to start Claude Code with MCP integration\r\n\r\n');
+                }, 2000);
+            }
+        }, 1500); // Wait for shell to be ready
+        
         // Store terminal instance with DOM element for persistence
         const terminalContainer = terminalElement.closest('.terminal-container');
         activeTerminals.set(project.id, {
@@ -2376,6 +3706,23 @@ async function initializeGlobalTerminal() {
             terminalSidebarState.isInitializing = true;
             terminalSidebarState.isClaudeReady = false;
             
+            // Auto-configure Figma MCP server if we're in a project directory
+            setTimeout(() => {
+                if (pid && terminal && getCurrentWorkingDirectory() !== '/') {
+                    console.log('🎨 Auto-configuring Figma MCP server in global terminal...');
+                    // Send the MCP add command to the terminal
+                    const mcpCommand = 'claude mcp add --transport sse figma-dev-mode-mcp-server http://127.0.0.1:3845/sse\r';
+                    window.electronAPI.ptyWrite(pid, mcpCommand);
+                    
+                    // Clear and show helpful message
+                    setTimeout(() => {
+                        window.electronAPI.ptyWrite(pid, 'clear\r');
+                        terminal.write('\r\n✅ Figma MCP server configured automatically\r\n');
+                        terminal.write('💡 Type "claude --continue" to start Claude Code with MCP integration\r\n\r\n');
+                    }, 2000);
+                }
+            }, 1500); // Wait for shell to be ready
+            
             // Set up data flow: PTY -> Terminal with Claude readiness detection
             const dataCleanup = window.electronAPI.onPtyData((data) => {
                 if (data.pid === terminalSidebarState.globalPid) {
@@ -2429,12 +3776,17 @@ async function initializeGlobalTerminal() {
             
             // Auto-start Claude Code if it's not already running
             setTimeout(() => {
-                // Only run claude --continue if Claude hasn't started automatically
+                // Only run MCP setup and claude --continue if Claude hasn't started automatically
                 if (!terminalSidebarState.isClaudeReady && !terminalSidebarState.isInitializing) {
-                    console.log('🚀 Auto-starting Claude Code...');
+                    console.log('🚀 Auto-starting Claude Code with MCP setup...');
                     terminalSidebarState.isInitializing = true;
                     updateTerminalReadyState();
-                    window.electronAPI.ptyWrite(pid, 'claude --continue\r');
+                    // First add the Figma MCP server
+                    window.electronAPI.ptyWrite(pid, 'claude mcp add --transport sse figma-dev-mode-mcp-server http://127.0.0.1:3845/sse\r');
+                    // Wait a moment, then start Claude
+                    setTimeout(() => {
+                        window.electronAPI.ptyWrite(pid, 'claude --continue\r');
+                    }, 1000);
                 }
             }, 3000); // Give more time to detect if Claude auto-started
             
@@ -2953,7 +4305,7 @@ async function updateProjectEnvironment() {
 }
 
 /**
- * Enhanced project viewer that updates context and shows project page
+ * Enhanced project viewer that updates context, shows project page, and auto-starts dev server
  */
 function enhancedOpenProjectViewer(projectId) {
     const project = appState.projects.find(p => p.id === projectId);
@@ -2972,8 +4324,11 @@ function enhancedOpenProjectViewer(projectId) {
     // Create initial environment file for Claude Code context
     updateProjectEnvironment();
     
-    // Show project page after context is updated
+    // Show project page immediately (don't wait for server)
     showProjectPage(project);
+    
+    // Start dev server in background (non-blocking)
+    startProjectServerBackground(projectId);
 }
 
 
