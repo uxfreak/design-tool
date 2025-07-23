@@ -7,6 +7,8 @@ const { app, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron')
 const path = require('path');
 const fs = require('fs').promises;
 const { spawn } = require('child_process');
+const { createThumbnailConfig, createThumbnailPath, shouldRegenerateThumbnail, createThumbnailWindowConfig, processImageThumbnail, createFallbackThumbnailPath } = require('./lib/thumbnailUtils');
+const { createWindowConfig, createMainWindow } = require('./lib/windowUtils');
 const os = require('os');
 const pty = require('node-pty');
 const Store = require('electron-store');
@@ -194,144 +196,21 @@ function generateStorybookMain() {
 };`;
 }
 
-// =============================================================================
-// THUMBNAIL GENERATION - PURE FUNCTIONS
-// =============================================================================
-
-/**
- * Pure function to create thumbnail configuration
- * @param {Object} options - Thumbnail options
- * @returns {Object} Thumbnail configuration
- */
-function createThumbnailConfig(options = {}) {
-  return {
-    width: options.width || 300,
-    height: options.height || 200,
-    quality: options.quality || 0.8,
-    format: options.format || 'png',
-    timeout: options.timeout || 10000, // 10 seconds
-    waitForLoad: options.waitForLoad || 3000, // 3 seconds
-    ...options
-  };
-}
-
-/**
- * Pure function to create thumbnail file path
- * @param {Object} project - Project object
- * @param {Object} config - Thumbnail configuration
- * @returns {string} Thumbnail file path
- */
-function createThumbnailPath(project, config) {
-  // Ensure we have a valid project path
-  const projectPath = project.path || path.join(store.get('projectsDirectory', os.homedir()), project.name);
-  const thumbnailDir = path.join(projectPath, '.thumbnails');
-  const timestamp = Date.now();
-  const filename = `preview_${project.id}_${timestamp}.${config.format}`;
-  const fullPath = path.join(thumbnailDir, filename);
-  
-  return fullPath;
-}
-
-/**
- * Pure function to check if thumbnail needs regeneration
- * @param {string} thumbnailPath - Path to existing thumbnail
- * @param {Object} project - Project object
- * @param {number} maxAge - Max age in milliseconds
- * @returns {Promise<boolean>} True if thumbnail needs regeneration
- */
-async function shouldRegenerateThumbnail(thumbnailPath, project, maxAge = 3600000) { // 1 hour
-  try {
-    const [thumbStats, projectStats] = await Promise.all([
-      fs.stat(thumbnailPath),
-      fs.stat(path.join(project.path, 'package.json'))
-    ]);
-    
-    const thumbAge = Date.now() - thumbStats.mtime.getTime();
-    const isStale = thumbAge > maxAge;
-    const isOutdated = projectStats.mtime > thumbStats.mtime;
-    
-    return isStale || isOutdated;
-  } catch (error) {
-    // Thumbnail doesn't exist or error occurred
-    return true;
-  }
-}
-
-/**
- * Pure function to create browser window options for thumbnail capture
- * @param {Object} config - Thumbnail configuration
- * @returns {Object} Browser window options
- */
-function createThumbnailWindowConfig(config) {
-  return {
-    width: 1200,
-    height: 800,
-    show: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      enableRemoteModule: false,
-      webSecurity: false // Allow loading local content
-    },
-    paintWhenInitiallyHidden: true,
-    enableLargerThanScreen: true
-  };
-}
-
-/**
- * Pure function to process captured image for thumbnail
- * @param {Electron.NativeImage} image - Captured image
- * @param {Object} config - Thumbnail configuration
- * @returns {Electron.NativeImage} Processed thumbnail
- */
-function processImageThumbnail(image, config) {
-  const resized = image.resize({
-    width: config.width,
-    height: config.height,
-    quality: 'good'
-  });
-  
-  return resized;
-}
-
-/**
- * Impure function to capture project thumbnail
- * @param {Object} project - Project object
- * @param {string} serverUrl - Server URL to capture
- * @param {Object} config - Thumbnail configuration
- * @returns {Promise<string>} Path to generated thumbnail
- */
 async function captureProjectThumbnail(project, serverUrl, config) {
   let thumbnailWindow = null;
-  
   try {
-    // Ensure thumbnail directory exists
-    const thumbnailDir = path.dirname(createThumbnailPath(project, config));
+    const thumbnailDir = path.dirname(createThumbnailPath(project, config, store));
     await fs.mkdir(thumbnailDir, { recursive: true });
-    
-    // Create hidden browser window for capture
     thumbnailWindow = new BrowserWindow(createThumbnailWindowConfig(config));
-    
-    // Load the project URL
     await thumbnailWindow.loadURL(serverUrl);
-    
-    // Wait for page to fully load
     await new Promise(resolve => setTimeout(resolve, config.waitForLoad));
-    
-    // Capture page screenshot
     const image = await thumbnailWindow.capturePage();
-    
-    // Process image into thumbnail
     const thumbnail = processImageThumbnail(image, config);
-    
-    // Save thumbnail to file
-    const thumbnailPath = createThumbnailPath(project, config);
+    const thumbnailPath = createThumbnailPath(project, config, store);
     const buffer = thumbnail.toPNG();
     await fs.writeFile(thumbnailPath, buffer);
-    
     console.log(`📸 Generated thumbnail for ${project.name}: ${thumbnailPath}`);
     return thumbnailPath;
-    
   } catch (error) {
     console.error(`❌ Thumbnail generation failed for ${project.name}:`, error.message);
     throw error;
@@ -342,129 +221,32 @@ async function captureProjectThumbnail(project, serverUrl, config) {
   }
 }
 
-/**
- * Pure function to create fallback thumbnail path for templates
- * @param {string} templateId - Template identifier
- * @returns {string} Fallback thumbnail path
- */
-function createFallbackThumbnailPath(templateId) {
-  // For now, return a special identifier that the frontend can handle
-  // The frontend will show a CSS-based fallback instead of trying to load a file
-  return `fallback:${templateId}`;
-}
-
-/**
- * Impure function to generate or retrieve project thumbnail
- * @param {Object} project - Project object
- * @param {boolean} forceRegenerate - Force thumbnail regeneration
- * @returns {Promise<string>} Path to thumbnail image
- */
 async function getProjectThumbnail(project, forceRegenerate = false) {
   const config = createThumbnailConfig();
-  
   try {
-    // Check if project server is running for fresh thumbnail generation
     const serverInfo = projectServers.get(project.id);
     if (!serverInfo || !serverInfo.url) {
       console.log(`⚠️ No server running for ${project.name}, using fallback thumbnail`);
-      
-      // Ensure template is a string
       const templateId = typeof project.template === 'string' ? project.template : 'react-basic';
       return createFallbackThumbnailPath(templateId);
     }
-    
-    // Always generate fresh thumbnail if server is running and regeneration is forced
     if (forceRegenerate) {
       console.log(`📸 Generating fresh thumbnail for ${project.name}`);
       return await captureProjectThumbnail(project, serverInfo.url, config);
     }
-    
-    // Check if existing thumbnail exists and is recent
-    const thumbnailPath = createThumbnailPath(project, config);
+    const thumbnailPath = createThumbnailPath(project, config, store);
     const needsRegeneration = await shouldRegenerateThumbnail(thumbnailPath, project);
-    
     if (!needsRegeneration) {
       console.log(`📷 Using existing thumbnail for ${project.name}`);
       return thumbnailPath;
     }
-    
-    // Generate new thumbnail
     console.log(`📸 Generating new thumbnail for ${project.name}`);
     return await captureProjectThumbnail(project, serverInfo.url, config);
-    
   } catch (error) {
     console.error(`❌ Thumbnail generation error for ${project.name}:`, error.message);
-    
-    // Return fallback thumbnail for template
     const templateId = typeof project.template === 'string' ? project.template : 'react-basic';
     return createFallbackThumbnailPath(templateId);
   }
-}
-
-/**
- * Pure function to create window configuration
- * @returns {Object} Window configuration options
- */
-function createWindowConfig() {
-  const isDev = process.argv.includes('--dev');
-  
-  return {
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      enableRemoteModule: false,
-      webSecurity: !isDev, // Disable web security in development to prevent IPC issues
-      preload: path.join(__dirname, 'preload.js') // Enable secure IPC
-    },
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    show: false // Don't show until ready
-  };
-}
-
-/**
- * Pure function to create main window
- * @returns {BrowserWindow} Configured window instance
- */
-function createMainWindow() {
-  const config = createWindowConfig();
-  const window = new BrowserWindow(config);
-
-  // Load the HTML file
-  window.loadFile('index.html');
-
-  // Show window when ready to prevent visual flash
-  window.once('ready-to-show', () => {
-    window.show();
-    
-    // Open DevTools in development
-    if (process.argv.includes('--dev')) {
-      window.webContents.openDevTools();
-    }
-  });
-
-  // Enable live reload in development with better file watching
-  if (process.argv.includes('--dev')) {
-    const fs = require('fs');
-    const filesToWatch = ['index.html', 'app.js'];
-    
-    filesToWatch.forEach(file => {
-      fs.watchFile(file, { interval: 1000 }, () => {
-        console.log(`🔄 File changed: ${file}, reloading...`);
-        window.reload();
-      });
-    });
-  }
-
-  // Handle window closed
-  window.on('closed', () => {
-    mainWindow = null;
-  });
-
-  return window;
 }
 
 /**
@@ -963,7 +745,7 @@ ipcMain.handle('project:get-thumbnail', async (event, projectId) => {
     }
     
     const config = createThumbnailConfig();
-    const thumbnailPath = createThumbnailPath(project, config);
+    const thumbnailPath = createThumbnailPath(project, config, store);
     
     // Check if thumbnail exists
     try {

@@ -3,6 +3,7 @@
  * Following functional programming principles and Generative Analysis specification
  */
 
+import { createServerManager } from './serverManager.js';
 // Handle potential errors gracefully
 window.addEventListener('error', (event) => {
     console.log('Window error caught:', event.error);
@@ -25,252 +26,6 @@ let appState = {
 };
 
 // Project server state management
-const SERVER_STATUS = {
-    STOPPED: 'stopped',
-    STARTING: 'starting', 
-    READY: 'ready',
-    FAILED: 'failed'
-};
-
-function createProjectServerState(projectId) {
-    return {
-        projectId,
-        status: SERVER_STATUS.STOPPED,
-        url: null,
-        port: null,
-        pid: null,
-        startTime: null,
-        lastError: null
-    };
-}
-
-function updateProjectServerState(projectId, updates) {
-    const currentState = appState.projectServers.get(projectId) || createProjectServerState(projectId);
-    const newState = { ...currentState, ...updates };
-    appState.projectServers.set(projectId, newState);
-    
-    // Update UI indicators
-    updateServerStatusIndicator(newState);
-    
-    return newState;
-}
-
-function getProjectServerState(projectId) {
-    return appState.projectServers.get(projectId) || createProjectServerState(projectId);
-}
-
-function isServerReady(projectId) {
-    const state = getProjectServerState(projectId);
-    return state.status === SERVER_STATUS.READY && state.url;
-}
-
-// Background server startup (non-blocking)
-async function startProjectServerBackground(projectId) {
-    console.log('🚀 Starting dev server in background for project:', projectId);
-    
-    // Update state to starting
-    updateProjectServerState(projectId, {
-        status: SERVER_STATUS.STARTING,
-        startTime: Date.now()
-    });
-    
-    try {
-        // Check if already running first
-        const statusResult = await window.electronAPI.getProjectServerStatus(projectId);
-        if (statusResult.success && statusResult.status === 'running') {
-            console.log('✅ Server already running for project:', projectId);
-            updateProjectServerState(projectId, {
-                status: SERVER_STATUS.READY,
-                url: statusResult.url,
-                port: statusResult.port,
-                pid: statusResult.pid
-            });
-            return;
-        }
-        
-        // Start new server
-        const startResult = await window.electronAPI.startProjectServer(projectId);
-        if (startResult.success) {
-            console.log('✅ Server started successfully for project:', projectId);
-            updateProjectServerState(projectId, {
-                status: SERVER_STATUS.READY,
-                url: startResult.url,
-                port: startResult.port,
-                pid: startResult.pid
-            });
-            
-            // Enable live features now that server is ready
-            enableLiveFeatures(projectId);
-        } else {
-            console.error('❌ Server failed to start for project:', projectId, startResult.error);
-            updateProjectServerState(projectId, {
-                status: SERVER_STATUS.FAILED,
-                lastError: startResult.error
-            });
-        }
-    } catch (error) {
-        console.error('❌ Error starting server for project:', projectId, error);
-        updateProjectServerState(projectId, {
-            status: SERVER_STATUS.FAILED,
-            lastError: error.message
-        });
-    }
-}
-
-// Update status bar indicator based on server state
-function updateServerStatusIndicator(serverState) {
-    const serverIndicator = document.querySelector('#server-status .status-indicator');
-    const serverIcon = document.querySelector('#server-status .icon');
-    
-    if (!serverIndicator) return;
-    
-    // Clear existing classes
-    serverIndicator.className = 'status-indicator';
-    
-    switch (serverState.status) {
-        case SERVER_STATUS.STARTING:
-            serverIndicator.classList.add('inactive');
-            serverIndicator.parentElement.title = 'Dev server starting...';
-            break;
-        case SERVER_STATUS.READY:
-            serverIndicator.classList.add('active');
-            serverIndicator.parentElement.title = `Dev server ready (${serverState.url})`;
-            break;
-        case SERVER_STATUS.FAILED:
-            serverIndicator.classList.add('error');
-            serverIndicator.parentElement.title = `Dev server failed: ${serverState.lastError}`;
-            break;
-        default:
-            serverIndicator.classList.add('inactive');
-            serverIndicator.parentElement.title = 'Dev server stopped';
-    }
-}
-
-// Enable live features when server becomes ready
-function enableLiveFeatures(projectId) {
-    console.log('🎉 Enabling live features for project:', projectId);
-    
-    // Add live preview buttons to component library
-    addLivePreviewButtons(projectId);
-    
-    // Enable instant workflow previews
-    enableInstantWorkflowPreviews(projectId);
-    
-    // Update UI to show server is ready
-    showServerReadyNotification(projectId);
-}
-
-function addLivePreviewButtons(projectId) {
-    // This will be implemented when we get to the component library enhancement
-    console.log('📝 TODO: Add live preview buttons for components');
-}
-
-function enableInstantWorkflowPreviews(projectId) {
-    // Update workflow cards to show they're ready for instant preview
-    const workflowCards = document.querySelectorAll('.workflow-card');
-    workflowCards.forEach(card => {
-        if (!card.classList.contains('empty-workflow')) {
-            card.classList.add('server-ready');
-        }
-    });
-}
-
-function showServerReadyNotification(projectId) {
-    // Subtle notification that server is ready (optional)
-    console.log('✨ Server ready for instant previews');
-}
-
-// Smart server cleanup and resource management
-function addServerCleanupHandlers() {
-    // Cleanup when navigating back to dashboard
-    const originalShowDashboard = window.showDashboard;
-    if (originalShowDashboard) {
-        window.showDashboard = function() {
-            scheduleServerCleanup();
-            return originalShowDashboard.call(this);
-        };
-    }
-    
-    // Cleanup on app quit
-    window.addEventListener('beforeunload', () => {
-        stopAllProjectServers();
-    });
-}
-
-function scheduleServerCleanup() {
-    // Stop servers after 5 minutes of inactivity (user might come back)
-    setTimeout(() => {
-        if (appContext.currentView === 'dashboard') {
-            console.log('🧹 Cleaning up inactive project servers');
-            stopAllProjectServers();
-        }
-    }, 5 * 60 * 1000); // 5 minutes
-}
-
-async function stopAllProjectServers() {
-    const serverPromises = [];
-    
-    for (const [projectId, serverState] of appState.projectServers) {
-        if (serverState.status === SERVER_STATUS.READY || serverState.status === SERVER_STATUS.STARTING) {
-            console.log('🛑 Stopping server for project:', projectId);
-            serverPromises.push(stopProjectServer(projectId));
-        }
-    }
-    
-    await Promise.all(serverPromises);
-    appState.projectServers.clear();
-}
-
-async function stopProjectServer(projectId) {
-    try {
-        const result = await window.electronAPI.stopProjectServer(projectId);
-        if (result.success) {
-            updateProjectServerState(projectId, {
-                status: SERVER_STATUS.STOPPED,
-                url: null,
-                port: null,
-                pid: null
-            });
-            console.log('✅ Server stopped for project:', projectId);
-        } else {
-            console.error('❌ Failed to stop server for project:', projectId, result.error);
-        }
-    } catch (error) {
-        console.error('❌ Error stopping server for project:', projectId, error);
-    }
-}
-
-// Server failure handling and retry mechanisms
-function handleServerFailure(projectId, error) {
-    console.error('🚨 Server failure for project:', projectId, error);
-    
-    updateProjectServerState(projectId, {
-        status: SERVER_STATUS.FAILED,
-        lastError: error
-    });
-    
-    // Show user-friendly error in UI
-    showServerErrorNotification(projectId, error);
-}
-
-function showServerErrorNotification(projectId, error) {
-    // Update workflow cards to show server error state
-    const workflowCards = document.querySelectorAll('.workflow-card');
-    workflowCards.forEach(card => {
-        card.classList.remove('server-ready');
-        card.classList.add('server-error');
-    });
-}
-
-function retryServerStart(projectId) {
-    console.log('🔄 Retrying server start for project:', projectId);
-    startProjectServerBackground(projectId);
-}
-
-// Initialize server cleanup handlers when app loads
-document.addEventListener('DOMContentLoaded', () => {
-    addServerCleanupHandlers();
-});
 
 // Phase 3: Context Awareness System
 let appContext = {
@@ -286,6 +41,8 @@ let appContext = {
 };
 
 // Pure function constants
+const serverManager = createServerManager({ appState, appContext });
+const { SERVER_STATUS, startProjectServerBackground, stopAllProjectServers, stopProjectServer, getProjectServerState, updateProjectServerState } = serverManager;
 const PROJECT_TEMPLATES = {
     'react-basic': {
         id: 'react-basic',
@@ -4517,4 +4274,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeSidebarResize();
     setupGlobalKeyboardShortcuts();
     setupContextAwareness();
+    serverManager.addServerCleanupHandlers();
 });
