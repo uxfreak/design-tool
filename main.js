@@ -13,6 +13,12 @@ const Store = require('electron-store');
 const https = require('https');
 const { URL } = require('url');
 
+const createDefaultWorkflow = require('./lib/createDefaultWorkflow');
+const addWorkflowToProject = require('./lib/addWorkflowToProject');
+const createProjectWithDefaultWorkflow = require('./lib/createProjectWithDefaultWorkflow');
+const validateProjectPath = require('./lib/validateProjectPath');
+const { createProjectPlan, PROJECT_CREATION_STEPS } = require('./lib/createProjectPlan');
+const allocateUniquePort = require('./lib/allocateUniquePort');
 // Application state
 let mainWindow = null;
 let activeProcesses = new Map();
@@ -36,179 +42,6 @@ const store = new Store({
     projects: [] // Store project registry in backend
   }
 });
-
-// Project creation state
-const PROJECT_CREATION_STEPS = {
-  PLANNING: 'Planning project structure',
-  SCAFFOLDING: 'Creating files and directories', 
-  INSTALLING: 'Installing dependencies',
-  CONFIGURING: 'Configuring development tools',
-  READY: 'Project ready for development'
-};
-
-// Pure Functions - Project Creation Layer
-
-/**
- * Create default workflow from project configuration (PURE FUNCTION)
- * @param {Object} projectConfig - Project configuration
- * @returns {Object} Default workflow object
- */
-function createDefaultWorkflow(projectConfig) {
-  return {
-    id: `${projectConfig.id}_landing`,
-    name: "Landing Page",
-    description: "Default welcome page workflow",
-    steps: [
-      { 
-        id: 'step_1', 
-        component: "App", 
-        screen: "Welcome Page", 
-        order: 0,
-        description: "Main application landing page"
-      }
-    ],
-    componentCount: 1,
-    isDefault: true,
-    createdAt: new Date().toISOString()
-  };
-}
-
-/**
- * Add workflow to project data (PURE FUNCTION - IMMUTABLE)
- * @param {Object} project - Project object
- * @param {Object} workflow - Workflow to add
- * @returns {Object} New project object with workflow added
- */
-function addWorkflowToProject(project, workflow) {
-  return {
-    ...project,
-    workflows: [...(project.workflows || []), workflow],
-    lastModified: new Date().toISOString()
-  };
-}
-
-/**
- * Create project with default workflow (COMPOSITION FUNCTION)
- * @param {Object} projectConfig - Project configuration
- * @returns {Object} Result with project data and workflow
- */
-function createProjectWithDefaultWorkflow(projectConfig) {
-  try {
-    const workflow = createDefaultWorkflow(projectConfig);
-    const projectData = addWorkflowToProject(projectConfig, workflow);
-    
-    return { success: true, project: projectData, workflow };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Validate project path for file system compatibility
- * @param {string} projectPath - Proposed project path
- * @returns {Object} Result object with success/error
- */
-function validateProjectPath(projectPath) {
-  if (!projectPath || typeof projectPath !== 'string') {
-    return { success: false, error: 'Project path is required' };
-  }
-  
-  // Check for invalid characters
-  const invalidChars = /[<>:"|?*]/;
-  if (invalidChars.test(projectPath)) {
-    return { success: false, error: 'Project path contains invalid characters' };
-  }
-  
-  return { success: true, value: projectPath };
-}
-
-/**
- * Ensure directory exists, create it if it doesn't
- * @param {string} dirPath - Directory path to ensure exists
- */
-async function ensureDirectoryExists(dirPath) {
-  try {
-    await fs.access(dirPath);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      await fs.mkdir(dirPath, { recursive: true });
-      console.log('📁 Created directory:', dirPath);
-    } else {
-      throw error;
-    }
-  }
-}
-
-/**
- * Generate project structure based on template
- * @param {Object} template - Project template definition
- * @param {string} projectName - Name of the project
- * @returns {Array} File definitions to create
- */
-function generateProjectStructure(template, projectName) {
-  const baseStructure = {
-    'react-basic': [
-      { path: 'package.json', type: 'file', content: generatePackageJson(projectName, template) },
-      { path: 'index.html', type: 'file', content: generateIndexHtml(projectName) },
-      { path: 'src', type: 'directory' },
-      { path: 'src/App.jsx', type: 'file', content: generateAppComponent(projectName) },
-      { path: 'src/main.jsx', type: 'file', content: generateMainJs() },
-      { path: 'vite.config.js', type: 'file', content: generateViteConfig() }
-    ],
-    'react-storybook': [
-      { path: 'package.json', type: 'file', content: generatePackageJson(projectName, template) },
-      { path: 'index.html', type: 'file', content: generateIndexHtml(projectName) },
-      { path: 'src', type: 'directory' },
-      { path: 'src/App.jsx', type: 'file', content: generateAppComponent(projectName) },
-      { path: 'src/main.jsx', type: 'file', content: generateMainJs() },
-      { path: 'src/stories', type: 'directory' },
-      { path: 'src/stories/Button.jsx', type: 'file', content: generateButtonComponent() },
-      { path: 'src/stories/Button.stories.js', type: 'file', content: generateButtonStory() },
-      { path: 'vite.config.js', type: 'file', content: generateViteConfig() },
-      { path: '.storybook', type: 'directory' },
-      { path: '.storybook/main.js', type: 'file', content: generateStorybookMain() }
-    ]
-  };
-  
-  return baseStructure[template.id] || baseStructure['react-basic'];
-}
-
-/**
- * Allocate unique port for development server
- * @param {Set} usedPorts - Set of currently used ports
- * @returns {number} Available port number
- */
-function allocateUniquePort(usedPorts) {
-  let port = 6006; // Start with Storybook default
-  while (usedPorts.has(port)) {
-    port++;
-  }
-  return port;
-}
-
-/**
- * Create project creation plan with steps
- * @param {Object} config - Project configuration
- * @returns {Object} Project creation plan
- */
-function createProjectPlan(config) {
-  const steps = [
-    { id: 'planning', name: PROJECT_CREATION_STEPS.PLANNING, status: 'PENDING', progress: 0 },
-    { id: 'scaffolding', name: PROJECT_CREATION_STEPS.SCAFFOLDING, status: 'PENDING', progress: 0 },
-    { id: 'installing', name: PROJECT_CREATION_STEPS.INSTALLING, status: 'PENDING', progress: 0 },
-    { id: 'configuring', name: PROJECT_CREATION_STEPS.CONFIGURING, status: 'PENDING', progress: 0 },
-    { id: 'ready', name: PROJECT_CREATION_STEPS.READY, status: 'PENDING', progress: 0 }
-  ];
-  
-  return {
-    projectId: config.id,
-    projectName: config.name,
-    templateId: config.templateId,
-    steps: steps,
-    currentStep: 0,
-    overallProgress: 0
-  };
-}
 
 // Template Content Generators
 

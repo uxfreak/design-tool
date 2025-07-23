@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "dev:watch": "nodemon --watch . --ext js,html,css --exec \"electron . --dev\""
+    "dev:watch": "nodemon --watch . --ext js,html,css --exec \"electron . --dev\"",
+    "test": "mocha"
   },
   "keywords": [
     "electron",
@@ -24,7 +25,9 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
+    "chai": "^5.2.1",
     "electron": "^37.2.3",
+    "mocha": "^11.7.1",
     "nodemon": "^3.0.1"
   }
 }

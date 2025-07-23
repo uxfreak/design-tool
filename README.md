@@ -31,6 +31,9 @@ The Design Tool is a production-ready Electron desktop application that transfor
 - **Secure Architecture**: Proper IPC communication with contextBridge isolation
 - **Performance Optimized**: Efficient component discovery and terminal session reuse
 - **Robust Error Handling**: Comprehensive validation and recovery mechanisms
+### Reusable Function Library
+The `lib/` folder exposes small pure functions such as `createDefaultWorkflow` and `createProjectPlan`. These can be published as an open source module for reuse across projects.
+
 
 ## Architecture
 
